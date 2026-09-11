@@ -3,8 +3,18 @@ import "./globals.css";
 import { Providers } from "./providers";
 
 export const metadata: Metadata = {
-  title: "Crafted Learning Hub - LMS Platform",
-  description: "Comprehensive Learning Management System for students, teachers, parents, and admins.",
+  title: "Crafted — Learning Hub",
+  description: "A modern tuition platform for students, teachers and admins. Live classes, exams, results and more — all in one place.",
+  icons: {
+    icon: "/favicon.ico",
+    shortcut: "/favicon.ico",
+    apple: "/favicon.ico",
+  },
+  openGraph: {
+    title: "Crafted — Learning Hub",
+    description: "A modern tuition platform for students, teachers and admins. Live classes, exams, results and more — all in one place.",
+    images: ["https://study.craftedlearn.com/og-image.png"],
+  },
 };
 
 export default function RootLayout({
