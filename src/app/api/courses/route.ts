@@ -38,6 +38,7 @@ const seedCoursesIfNeeded = async () => {
 };
 
 import { requireAuth } from "@/lib/auth";
+import { serverCache } from "@/lib/cache";
 
 // GET all courses
 export async function GET(req: NextRequest) {
@@ -45,10 +46,20 @@ export async function GET(req: NextRequest) {
     const authResult = requireAuth(req);
     if (authResult.error) return authResult.error;
 
+    const cached = serverCache.get<any[]>("courses_all");
+    if (cached) {
+      return NextResponse.json(cached, {
+        headers: { "X-Cache": "HIT", "Cache-Control": "private, no-cache, must-revalidate" },
+      });
+    }
+
     await connectDB();
     await seedCoursesIfNeeded();
     const courses = await Course.find().sort({ classGrade: 1, subject: 1 }).lean();
-    return NextResponse.json(courses);
+    serverCache.set("courses_all", courses, 60, ["courses", "bootstrap"]);
+    return NextResponse.json(courses, {
+      headers: { "X-Cache": "MISS", "Cache-Control": "private, no-cache, must-revalidate" },
+    });
   } catch (err: any) {
     return NextResponse.json({ message: err.message || "Server error" }, { status: 500 });
   }
@@ -79,6 +90,7 @@ export async function POST(req: NextRequest) {
     });
 
     await newCourse.save();
+    serverCache.invalidateTags(["courses", "bootstrap"]);
     return NextResponse.json(newCourse, { status: 201 });
   } catch (err: any) {
     return NextResponse.json({ message: err.message || "Server error" }, { status: 500 });

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/db";
 import { requireAuth } from "@/lib/auth";
 import { Payment } from "@/models/Payment";
+import { serverCache } from "@/lib/cache";
 
 // PUT update payment (requires admin)
 export async function PUT(
@@ -31,6 +32,7 @@ export async function PUT(
       return NextResponse.json({ message: "Payment not found" }, { status: 404 });
     }
 
+    serverCache.invalidateTags(["bootstrap"]);
     return NextResponse.json(updated);
   } catch (err: any) {
     return NextResponse.json({ message: err.message || "Server error" }, { status: 500 });
@@ -54,6 +56,7 @@ export async function DELETE(
     if (!deleted) {
       return NextResponse.json({ message: "Payment not found" }, { status: 404 });
     }
+    serverCache.invalidateTags(["bootstrap"]);
     return NextResponse.json({ message: "Payment deleted successfully" });
   } catch (err: any) {
     return NextResponse.json({ message: err.message || "Server error" }, { status: 500 });

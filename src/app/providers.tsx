@@ -10,7 +10,20 @@ import { AppDataProvider } from "@/hooks/useAppData";
 import { AIChatbot } from "@/components/AIChatbot";
 
 export function Providers({ children }: { children: ReactNode }) {
-  const [queryClient] = useState(() => new QueryClient());
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: {
+            staleTime: 1000 * 60 * 2, // Data remains fresh for 2 minutes
+            gcTime: 1000 * 60 * 15, // Retain inactive queries in memory for 15 minutes
+            refetchOnWindowFocus: false,
+            refetchOnReconnect: true,
+            retry: 1,
+          },
+        },
+      })
+  );
 
   return (
     <QueryClientProvider client={queryClient}>

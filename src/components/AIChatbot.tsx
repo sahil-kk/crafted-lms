@@ -249,6 +249,21 @@ export function AIChatbot() {
     const userMsg: Message = { id: Date.now().toString(), role: "user", text: text.trim(), timestamp: new Date() };
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
+
+    const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
+    if (!apiKey) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: (Date.now() + 1).toString(),
+          role: "model",
+          text: "AI Chat is not configured yet. Please provide NEXT_PUBLIC_GEMINI_API_KEY in your environment settings.",
+          timestamp: new Date(),
+        },
+      ]);
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -273,11 +288,14 @@ export function AIChatbot() {
       };
       setMessages((prev) => [...prev, aiMsg]);
       if (!open) setHasUnread(true);
-    } catch {
+    } catch (err: any) {
+      const is403 = String(err?.message || "").includes("403") || err?.status === 403;
       setMessages((prev) => [...prev, {
         id: (Date.now() + 1).toString(),
         role: "model",
-        text: "Sorry, something went wrong. Please try again.",
+        text: is403
+          ? "Gemini API key is invalid or lacks permissions (403 Forbidden). Please check NEXT_PUBLIC_GEMINI_API_KEY."
+          : "Sorry, something went wrong. Please try again.",
         timestamp: new Date(),
       }]);
     } finally {

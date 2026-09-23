@@ -10,6 +10,7 @@ import { RecordedClass } from "@/models/RecordedClass";
 import { Result } from "@/models/Result";
 import { Timetable } from "@/models/Timetable";
 import { Payment } from "@/models/Payment";
+import { serverCache } from "@/lib/cache";
 
 export async function GET(req: NextRequest) {
   try {
@@ -19,6 +20,19 @@ export async function GET(req: NextRequest) {
     }
 
     const { user } = authResult;
+
+    // Check server memory cache for this user/role
+    const cacheKey = `bootstrap_${user.id}_${user.role}`;
+    const cachedData = serverCache.get<any>(cacheKey);
+    if (cachedData) {
+      return NextResponse.json(cachedData, {
+        headers: {
+          "X-Cache": "HIT",
+          "Cache-Control": "private, no-cache, must-revalidate",
+        },
+      });
+    }
+
     await connectDB();
 
     const isAdmin = user.role === "admin";
@@ -61,7 +75,7 @@ export async function GET(req: NextRequest) {
         paymentsPromise,
       ]);
 
-    return NextResponse.json({
+    const responsePayload = {
       students,
       teachers,
       parents,
@@ -72,6 +86,16 @@ export async function GET(req: NextRequest) {
       results,
       timetables,
       payments,
+    };
+
+    // Store in server memory cache for 30s
+    serverCache.set(cacheKey, responsePayload, 30, ["bootstrap", `bootstrap_${user.role}`]);
+
+    return NextResponse.json(responsePayload, {
+      headers: {
+        "X-Cache": "MISS",
+        "Cache-Control": "private, no-cache, must-revalidate",
+      },
     });
   } catch (err: any) {
     return NextResponse.json({ message: err.message || "Server error" }, { status: 500 });

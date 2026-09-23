@@ -19,6 +19,7 @@ export interface ResultObj { id?: string; _id?: string; studentId: string; subje
 export interface PaymentObj { id?: string; _id?: string; studentId: string; studentName: string; amount: number; currency?: string; status: "paid" | "pending" | "overdue"; dueDate: string; paidAt?: string; classGrade?: string; batch?: string; razorpayOrderId?: string; razorpayPaymentId?: string; razorpaySignature?: string; paymentMethod?: string; receiptNumber?: string; created_at?: string; }
 import { apiClient } from "@/lib/apiClient";
 import { useAuth } from "./useAuth";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 interface CreateUserInput {
   email: string;
@@ -134,191 +135,260 @@ interface AppDataContextValue extends MockAppState {
   createPayment: (input: PaymentObj) => void;
   deletePayment: (id: string) => void;
   updatePayment: (id: string, input: Partial<PaymentObj>) => void;
+  refreshData: () => Promise<void>;
 }
 
-const STORAGE_KEY = "ui-only-school-app";
-const AppDataContext = createContext<AppDataContextValue | undefined>(undefined);
+const STORAGE_PREFIX = "crafted_cache_v3";
+const getCacheKey = (userId?: string) => `${STORAGE_PREFIX}_${userId || "global"}`;
 
-const loadState = (): MockAppState => {
-  if (typeof window === "undefined") return initialMockState;
-  const raw = window.localStorage.getItem(STORAGE_KEY);
-  if (!raw) return initialMockState;
+interface CachedAppData {
+  state: MockAppState;
+  payments: PaymentObj[];
+  timestamp: number;
+}
+
+const loadCachedData = (userId?: string): CachedAppData | null => {
+  if (typeof window === "undefined") return null;
   try {
-    const parsed = JSON.parse(raw) as MockAppState;
-    // Strip out any legacy dummy/mock exams that start with 'exam-' or have id '123'
-    if (Array.isArray(parsed.exams)) {
-      parsed.exams = parsed.exams.filter(
-        (e: any) => e && e.id && !e.id.startsWith("exam-") && e.id !== "123"
-      );
+    const raw = window.localStorage.getItem(getCacheKey(userId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as CachedAppData;
+    if (parsed && parsed.state && Array.isArray(parsed.state.users)) {
+      return parsed;
     }
-    return parsed;
   } catch {
-    return initialMockState;
+    // fallback
+  }
+  return null;
+};
+
+const saveCachedData = (
+  userId: string | undefined,
+  data: { state: MockAppState; payments: PaymentObj[] }
+) => {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      getCacheKey(userId),
+      JSON.stringify({
+        ...data,
+        timestamp: Date.now(),
+      })
+    );
+  } catch (err) {
+    console.warn("Failed to persist app cache to localStorage", err);
   }
 };
 
+function formatBootstrap(bootstrap: any) {
+  const students = bootstrap.students || [];
+  const teachers = bootstrap.teachers || [];
+  const parents = bootstrap.parents || [];
+  const courses = bootstrap.courses || [];
+  const announcements = bootstrap.announcements || [];
+  const exams = bootstrap.exams || [];
+  const classes = bootstrap.classes || [];
+  const results = bootstrap.results || [];
+  const timetables = bootstrap.timetables || [];
+  const loadedPayments = bootstrap.payments || [];
+
+  const combinedUsers = [
+    ...students.map((u: any) => ({
+      id: u._id || u.studentId,
+      studentId: u.studentId || "",
+      email: u.email,
+      full_name: u.name,
+      role: "student" as const,
+      created_at: u.createdAt || new Date().toISOString(),
+      course: u.course || "General",
+      phone: u.phone || "",
+      batch: u.batch || "Batch 1",
+      profilePhoto: u.profilePhoto || "",
+      classLink: u.classLink || "",
+      assignedCourses: u.assignedCourses || ["Physics", "Chemistry", "Biology", "Mathematics"],
+    })),
+    ...teachers.map((u: any) => ({
+      id: u._id,
+      email: u.email,
+      full_name: u.name,
+      role: "teacher" as const,
+      created_at: u.createdAt || new Date().toISOString(),
+      phone: u.phone || "",
+      subject: u.subject || "Physics",
+    })),
+    ...parents.map((u: any) => ({
+      id: u._id || u.id,
+      email: u.email,
+      full_name: u.name,
+      role: "parent" as const,
+      created_at: u.createdAt || new Date().toISOString(),
+      phone: u.phone || "",
+      linkedStudentId: u.student?._id || u.student?.id || u.student,
+      relationship: u.relationship || "Parent",
+    })),
+  ];
+
+  return {
+    combinedUsers,
+    courses: (courses && courses.length > 0)
+      ? courses.map((c: any) => ({
+          id: c._id || c.id,
+          _id: c._id,
+          classGrade: c.classGrade,
+          subject: c.subject,
+          chapters: c.chapters || [],
+          created_at: c.createdAt || new Date().toISOString(),
+        }))
+      : [],
+    announcements: (announcements && announcements.length > 0)
+      ? announcements.map((a: any) => ({
+          id: a._id,
+          title: a.title,
+          body: a.content || a.message || a.body || "",
+          is_global: true,
+          created_at: a.createdAt || new Date().toISOString(),
+        }))
+      : [],
+    recordedClasses: (classes && classes.length > 0)
+      ? classes.map((c: any) => ({
+          id: c._id,
+          title: c.title,
+          description: c.description,
+          youtube_id: c.youtube_id,
+          course_id: c.course_id,
+          created_at: c.createdAt || new Date().toISOString(),
+        }))
+      : [],
+    timetables: timetables || [],
+    results: results || [],
+    exams: (exams && exams.length > 0)
+      ? exams.map((e: any) => ({
+          id: e._id || e.id,
+          _id: e._id || e.id,
+          title: e.title,
+          description: e.subject || e.description || "",
+          subject: e.subject || e.description || "",
+          exam_type: e.exam_type || "unit_test",
+          duration_minutes: e.duration_minutes || 60,
+          starts_at: e.starts_at || e.date || null,
+          studentId: e.studentId || null,
+          course_id: e.course_id || null,
+          pdf: e.pdf,
+          questions: e.questions || [],
+          created_at: e.createdAt || new Date().toISOString(),
+        }))
+      : [],
+    questions: (exams && exams.length > 0)
+      ? exams.flatMap((e: any) =>
+          (e.questions || []).map((q: any) => ({
+            ...q,
+            exam_id: e._id || e.id,
+          }))
+        )
+      : [],
+    payments: loadedPayments || [],
+  };
+}
+
+const AppDataContext = createContext<AppDataContextValue | undefined>(undefined);
+
 export const AppDataProvider = ({ children }: { children: ReactNode }) => {
+  const { session } = useAuth();
+  const userId = session?.user?.id;
+  const userRole = session?.user?.role;
+  const queryClient = useQueryClient();
+
+  // Instant hydration from persistent local cache
+  const cachedData = useMemo(() => {
+    return loadCachedData(userId);
+  }, [userId]);
+
   const [state, setState] = useState<MockAppState>(() => {
-    if (typeof window !== "undefined") {
-      const cached = loadState();
-      if (cached && cached.users && cached.users.length > 0) return cached;
+    if (cachedData?.state && cachedData.state.users && cachedData.state.users.length > 0) {
+      return cachedData.state;
     }
     return { ...initialMockState };
   });
-  const [payments, setPayments] = useState<PaymentObj[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const { session } = useAuth();
-  
-  useEffect(() => {
-    if (!session?.access_token) {
-      setIsLoading(false);
-      return;
+
+  const [payments, setPayments] = useState<PaymentObj[]>(() => {
+    if (cachedData?.payments && Array.isArray(cachedData.payments)) {
+      return cachedData.payments;
     }
-    
-    // Fetch fresh state from backend in background
-    const fetchAll = async () => {
+    return [];
+  });
+
+  // If cached data was present, start with isLoading = false for instant 0ms visual rendering!
+  const [isLoading, setIsLoading] = useState<boolean>(() => {
+    return !(cachedData?.state && cachedData.state.users && cachedData.state.users.length > 0);
+  });
+
+  // Background revalidation with TanStack React Query
+  const { data: bootstrapData, refetch } = useQuery({
+    queryKey: ["bootstrap", userId, userRole],
+    queryFn: async () => {
       try {
-        setIsLoading(true);
-        let students: any[] = [];
-        let teachers: any[] = [];
-        let parents: any[] = [];
-        let courses: any[] = [];
-        let announcements: any[] = [];
-        let exams: any[] = [];
-        let classes: any[] = [];
-        let results: any[] = [];
-        let timetables: any[] = [];
-        let loadedPayments: any[] = [];
-
-        try {
-          const bootstrap = await apiClient<any>("/bootstrap");
-          students = bootstrap.students || [];
-          teachers = bootstrap.teachers || [];
-          parents = bootstrap.parents || [];
-          courses = bootstrap.courses || [];
-          announcements = bootstrap.announcements || [];
-          exams = bootstrap.exams || [];
-          classes = bootstrap.classes || [];
-          results = bootstrap.results || [];
-          timetables = bootstrap.timetables || [];
-          loadedPayments = bootstrap.payments || [];
-        } catch {
-          const res = await Promise.all([
-            apiClient<any[]>("/students").catch(() => []),
-            apiClient<any[]>("/admin/teachers").catch(() => []),
-            apiClient<any[]>("/parents").catch(() => []),
-            apiClient<any[]>("/courses").catch(() => []),
-            apiClient<any[]>("/announcements").catch(() => []),
-            apiClient<any[]>("/exams").catch(() => []),
-            apiClient<any[]>("/classes").catch(() => []),
-            apiClient<any[]>("/results").catch(() => []),
-            apiClient<any[]>("/timetable").catch(() => []),
-            apiClient<any[]>("/payments").catch(() => []),
-          ]);
-          students = res[0]; teachers = res[1]; parents = res[2]; courses = res[3];
-          announcements = res[4]; exams = res[5]; classes = res[6]; results = res[7];
-          timetables = res[8]; loadedPayments = res[9];
-        }
-        
-        const combinedUsers = [
-          ...(students || []).map((u: any) => ({
-            id: u._id || u.studentId,
-            studentId: u.studentId || "",
-            email: u.email,
-            full_name: u.name,
-            role: "student" as const,
-            created_at: u.createdAt || new Date().toISOString(),
-            course: u.course || "General",
-            phone: u.phone || "",
-            batch: u.batch || "Batch 1",
-            profilePhoto: u.profilePhoto || "",
-            classLink: u.classLink || "",
-            assignedCourses: u.assignedCourses || ["Physics", "Chemistry", "Biology", "Mathematics"]
-          })),
-          ...(teachers || []).map((u: any) => ({
-            id: u._id,
-            email: u.email,
-            full_name: u.name,
-            role: "teacher" as const,
-            created_at: u.createdAt || new Date().toISOString(),
-            phone: u.phone || "",
-            subject: u.subject || "Physics"
-          })),
-          ...(parents || []).map((u: any) => ({
-            id: u._id || u.id,
-            email: u.email,
-            full_name: u.name,
-            role: "parent" as const,
-            created_at: u.createdAt || new Date().toISOString(),
-            phone: u.phone || "",
-            linkedStudentId: u.student?._id || u.student?.id || u.student,
-            relationship: u.relationship || "Parent"
-          }))
-        ];
-
-        setPayments(loadedPayments || []);
-
-        setState(prev => ({
-          ...prev,
-          users: combinedUsers,
-          courses: (courses && courses.length > 0) ? courses.map(c => ({
-            id: c._id || c.id,
-            _id: c._id,
-            classGrade: c.classGrade,
-            subject: c.subject,
-            chapters: c.chapters || [],
-            created_at: c.createdAt || new Date().toISOString()
-          })) : [],
-          announcements: (announcements && announcements.length > 0) ? announcements.map(a => ({
-            id: a._id,
-            title: a.title,
-            body: a.content || a.message || a.body || "",
-            is_global: true,
-            created_at: a.createdAt || new Date().toISOString()
-          })) : [],
-          recordedClasses: (classes && classes.length > 0) ? classes.map((c: any) => ({
-            id: c._id,
-            title: c.title,
-            description: c.description,
-            youtube_id: c.youtube_id,
-            course_id: c.course_id,
-            created_at: c.createdAt || new Date().toISOString()
-          })) : [],
-          timetables: timetables || [],
-          results: results || [],
-          exams: (exams && exams.length > 0) ? exams.map((e: any) => ({
-            id: e._id || e.id,
-            _id: e._id || e.id,
-            title: e.title,
-            description: e.subject || e.description || "",
-            subject: e.subject || e.description || "",
-            exam_type: e.exam_type || "unit_test",
-            duration_minutes: e.duration_minutes || 60,
-            starts_at: e.starts_at || e.date || null,
-            studentId: e.studentId || null,
-            course_id: e.course_id || null,
-            pdf: e.pdf,
-            questions: e.questions || [],
-            created_at: e.createdAt || new Date().toISOString()
-          })) : [],
-          questions: (exams && exams.length > 0) ? exams.flatMap((e: any) => (e.questions || []).map((q: any) => ({
-            ...q,
-            exam_id: e._id || e.id,
-          }))) : [],
-        }));
-        setIsLoading(false);
-      } catch (err) {
-        console.error("Failed to fetch initial state", err);
-        setIsLoading(false);
+        return await apiClient<any>("/bootstrap");
+      } catch {
+        const res = await Promise.all([
+          apiClient<any[]>("/students").catch(() => []),
+          apiClient<any[]>("/admin/teachers").catch(() => []),
+          apiClient<any[]>("/parents").catch(() => []),
+          apiClient<any[]>("/courses").catch(() => []),
+          apiClient<any[]>("/announcements").catch(() => []),
+          apiClient<any[]>("/exams").catch(() => []),
+          apiClient<any[]>("/classes").catch(() => []),
+          apiClient<any[]>("/results").catch(() => []),
+          apiClient<any[]>("/timetable").catch(() => []),
+          apiClient<any[]>("/payments").catch(() => []),
+        ]);
+        return {
+          students: res[0],
+          teachers: res[1],
+          parents: res[2],
+          courses: res[3],
+          announcements: res[4],
+          exams: res[5],
+          classes: res[6],
+          results: res[7],
+          timetables: res[8],
+          payments: res[9],
+        };
       }
-    };
-    fetchAll();
-  }, [session?.access_token]);
+    },
+    enabled: Boolean(session?.access_token),
+    staleTime: 1000 * 60 * 2, // Fresh for 2 minutes
+    gcTime: 1000 * 60 * 15, // Inactive cache retained for 15 minutes
+  });
 
-  // Sync state to local storage is kept for mock fallback features
+  // Sync fresh server data to state & local cache
   useEffect(() => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }, [state]);
+    if (!bootstrapData) return;
+    const formatted = formatBootstrap(bootstrapData);
+    setState((prev) => {
+      const newState: MockAppState = {
+        ...prev,
+        users: formatted.combinedUsers,
+        courses: formatted.courses,
+        announcements: formatted.announcements,
+        recordedClasses: formatted.recordedClasses,
+        timetables: formatted.timetables,
+        results: formatted.results,
+        exams: formatted.exams,
+        questions: formatted.questions,
+      };
+      saveCachedData(userId, { state: newState, payments: formatted.payments });
+      return newState;
+    });
+    setPayments(formatted.payments);
+    setIsLoading(false);
+  }, [bootstrapData, userId]);
+
+  // Persist mutations to local cache whenever state or payments change
+  useEffect(() => {
+    if (state.users.length > 0) {
+      saveCachedData(userId, { state, payments });
+    }
+  }, [state, payments, userId]);
 
 
   const value = useMemo<AppDataContextValue>(() => ({
@@ -951,7 +1021,10 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
         );
       }
     },
-  }), [state, payments, isLoading]);
+    refreshData: async () => {
+      await refetch();
+    },
+  }), [state, payments, isLoading, refetch]);
 
   return <AppDataContext.Provider value={value}>{children}</AppDataContext.Provider>;
 };

@@ -5,6 +5,7 @@ import { Payment } from "@/models/Payment";
 
 import { User } from "@/models/User";
 import { Student } from "@/models/Student";
+import { serverCache } from "@/lib/cache";
 
 // GET payments (filtered by user role)
 export async function GET(req: NextRequest) {
@@ -68,8 +69,8 @@ export async function POST(req: NextRequest) {
       classGrade: classGrade || "",
       batch: batch || "",
     });
-
     await newPayment.save();
+    serverCache.invalidateTags(["bootstrap"]);
     return NextResponse.json(newPayment, { status: 201 });
   } catch (err: any) {
     return NextResponse.json({ message: err.message || "Server error" }, { status: 500 });

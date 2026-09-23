@@ -2,11 +2,11 @@ import Razorpay from "razorpay";
 import crypto from "crypto";
 
 export function getRazorpayClient(): Razorpay {
-  const keyId = process.env.RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
-  const keySecret = process.env.RAZORPAY_KEY_SECRET;
+  const keyId = (process.env.RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "").trim();
+  const keySecret = (process.env.RAZORPAY_KEY_SECRET || "").trim();
 
   if (!keyId || !keySecret) {
-    throw new Error("Razorpay credentials (RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET) are missing in environment variables.");
+    throw new Error("Razorpay credentials (RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET) are missing or empty in environment variables.");
   }
 
   return new Razorpay({
@@ -28,7 +28,7 @@ export function verifyPaymentSignature({
   paymentId: string;
   signature: string;
 }): boolean {
-  const keySecret = process.env.RAZORPAY_KEY_SECRET;
+  const keySecret = (process.env.RAZORPAY_KEY_SECRET || "").trim();
   if (!keySecret) {
     throw new Error("RAZORPAY_KEY_SECRET is not configured.");
   }
@@ -56,7 +56,7 @@ export function verifyWebhookSignature(
   signature: string,
   webhookSecret?: string
 ): boolean {
-  const secret = webhookSecret || process.env.RAZORPAY_WEBHOOK_SECRET;
+  const secret = (webhookSecret || process.env.RAZORPAY_WEBHOOK_SECRET || "").trim();
   if (!secret) return false;
 
   const expectedSignature = crypto

@@ -3,6 +3,8 @@ import { connectDB } from "@/lib/db";
 import { requireAuth } from "@/lib/auth";
 import { Announcement } from "@/models/Announcement";
 
+import { serverCache } from "@/lib/cache";
+
 // GET all announcements (requires authenticated session)
 export async function GET(req: NextRequest) {
   try {
@@ -38,6 +40,7 @@ export async function POST(req: NextRequest) {
     });
 
     await newAnnouncement.save();
+    serverCache.invalidateTags(["bootstrap"]);
     return NextResponse.json(newAnnouncement, { status: 201 });
   } catch (err: any) {
     return NextResponse.json({ message: err.message || "Server error" }, { status: 500 });

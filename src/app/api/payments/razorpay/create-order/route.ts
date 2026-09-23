@@ -95,9 +95,19 @@ export async function POST(req: NextRequest) {
     });
   } catch (err: any) {
     console.error("Razorpay order creation error:", err);
+    const statusCode = err.statusCode || (err.error?.code === "BAD_REQUEST_ERROR" ? 400 : 500);
+    const errorDescription =
+      err.error?.description ||
+      (err.statusCode === 401
+        ? "Razorpay authentication failed: Invalid Key ID or Secret. Please verify keys in environment settings."
+        : err.message || "Failed to create Razorpay order");
+
     return NextResponse.json(
-      { message: err.message || "Failed to create Razorpay order" },
-      { status: 500 }
+      {
+        message: errorDescription,
+        code: err.error?.code || "ORDER_CREATION_FAILED",
+      },
+      { status: statusCode }
     );
   }
 }
