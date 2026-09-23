@@ -10,7 +10,7 @@ import { useRouter } from "next/navigation";
 import { format } from "date-fns";
 import {
   FileText, TrendingUp, CalendarDays, Clock, BookOpen,
-  Trophy, Star, ChevronRight, Megaphone
+  Trophy, Star, ChevronRight, Megaphone, CreditCard
 } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from "recharts";
 import { Badge } from "@/components/ui/badge";
@@ -21,8 +21,14 @@ const DAY_ORDER = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Satu
 const StudentDashboard = () => {
   const { user } = useAuth();
   const router = useRouter();
-  const { exams, announcements, results, timetables, users } = useAppData();
+  const { exams, announcements, results, timetables, users, payments } = useAppData();
   const currentStudent = users.find((item) => item.id === user?.id || (user?.studentId && item.studentId === user.studentId) || (user?.email && item.email?.toLowerCase() === user.email.toLowerCase()));
+
+  const validStudentIds = [user?.id, user?.studentId, (user as any)?._id].filter(Boolean).map(String);
+  const pendingFees = (payments || []).filter(
+    (p) => validStudentIds.includes(String(p.studentId)) && p.status !== "paid"
+  );
+  const totalPendingAmount = pendingFees.reduce((acc, p) => acc + p.amount, 0);
 
   const [calDate, setCalDate] = useState<Date | undefined>(new Date());
 
@@ -127,6 +133,33 @@ const StudentDashboard = () => {
             <div className="absolute -top-8 -right-8 w-28 sm:w-36 h-28 sm:h-36 rounded-full bg-white/10 pointer-events-none z-[3]" />
             <div className="absolute -bottom-10 right-20 w-20 sm:w-28 h-20 sm:h-28 rounded-full bg-white/10 pointer-events-none z-[3]" />
           </div>
+
+          {/* Pending Fee Reminder Banner (if any) */}
+          {pendingFees.length > 0 && (
+            <Card className="p-4 bg-gradient-to-r from-orange-500/10 via-orange-500/5 to-transparent border-orange-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-[#f97316] text-white flex items-center justify-center shrink-0">
+                  <CreditCard className="h-5 w-5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-stone-900">
+                    Tuition Fee Due: ₹{totalPendingAmount.toLocaleString("en-IN")}
+                  </h4>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    You have {pendingFees.length} pending fee invoice{pendingFees.length > 1 ? "s" : ""}. Pay easily online via Razorpay.
+                  </p>
+                </div>
+              </div>
+              <Button
+                variant="hero"
+                size="sm"
+                className="text-xs shrink-0 gap-1.5 w-full sm:w-auto"
+                onClick={() => router.push("/dashboard/payments")}
+              >
+                Pay Fees Now <ChevronRight className="h-3.5 w-3.5" />
+              </Button>
+            </Card>
+          )}
 
           {/* Quick Stats Row */}
           <div className="grid grid-cols-3 gap-3 sm:gap-4">

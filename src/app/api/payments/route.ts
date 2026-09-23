@@ -3,6 +3,9 @@ import { connectDB } from "@/lib/db";
 import { requireAuth } from "@/lib/auth";
 import { Payment } from "@/models/Payment";
 
+import { User } from "@/models/User";
+import { Student } from "@/models/Student";
+
 // GET payments (filtered by user role)
 export async function GET(req: NextRequest) {
   try {
@@ -16,9 +19,21 @@ export async function GET(req: NextRequest) {
     if (user.role === "admin") {
       query = {}; // Admin sees all
     } else if (user.role === "student") {
-      query = { studentId: { $in: [user.id, user.studentId] } };
+      const studentIds: string[] = [user.id, user.studentId].filter((id): id is string => Boolean(id));
+      query = { studentId: { $in: studentIds } };
     } else if (user.role === "parent") {
-      query = user.studentId ? { studentId: user.studentId } : { _id: null };
+      const studentIds: string[] = [];
+      if (user.studentId) studentIds.push(String(user.studentId));
+      const parentUser = await User.findById(user.id);
+      if (parentUser?.linkedStudentId) {
+        studentIds.push(parentUser.linkedStudentId.toString());
+        const linkedStudent = await Student.findById(parentUser.linkedStudentId);
+        if (linkedStudent) {
+          if (linkedStudent.studentId) studentIds.push(linkedStudent.studentId);
+          if (linkedStudent._id) studentIds.push(linkedStudent._id.toString());
+        }
+      }
+      query = { studentId: { $in: Array.from(new Set(studentIds)) } };
     } else {
       return NextResponse.json([]);
     }

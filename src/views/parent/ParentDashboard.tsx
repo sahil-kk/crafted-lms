@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { format } from "date-fns";
 import {
   Award,
@@ -10,6 +10,7 @@ import {
   CalendarDays,
   CheckCircle2,
   ClipboardList,
+  CreditCard,
   FileText,
   GraduationCap,
   Mail,
@@ -72,6 +73,7 @@ const safeFormat = (value: any, pattern = "MMM d, yyyy") => format(safeDate(valu
 const asArray = <T,>(value: T[] | undefined | null): T[] => Array.isArray(value) ? value : [];
 
 const ParentDashboard = () => {
+  const router = useRouter();
   const pathname = usePathname() || "";
   const { user } = useAuth();
   const appData = useAppData();
@@ -134,6 +136,23 @@ const ParentDashboard = () => {
     ? asArray(portal?.teachers)
     : appUsers.filter((item) => item.role === "teacher");
   const messages = asArray(portal?.messages);
+
+  const childPayments = useMemo(() => {
+    const validIds = [
+      linkedStudentId,
+      student?.id,
+      student?._id,
+      student?.studentId,
+      user?.linkedStudentId,
+    ]
+      .filter(Boolean)
+      .map(String);
+    if (validIds.length === 0) return [];
+    return asArray(appData.payments).filter((p: any) => validIds.includes(String(p.studentId)));
+  }, [appData.payments, linkedStudentId, student, user]);
+
+  const pendingChildDues = childPayments.filter((p: any) => p.status !== "paid");
+  const totalPendingChildAmount = pendingChildDues.reduce((acc: number, p: any) => acc + (p.amount || 0), 0);
 
   const sendMessage = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -230,6 +249,33 @@ const ParentDashboard = () => {
         {loading && (
           <Card className="p-4 text-sm text-muted-foreground border-border/60 shadow-card">
             Loading student data...
+          </Card>
+        )}
+
+        {/* Pending Fee Reminder Banner for Parent */}
+        {section === "dashboard" && pendingChildDues.length > 0 && (
+          <Card className="p-4 bg-gradient-to-r from-orange-500/10 via-orange-500/5 to-transparent border-orange-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[#f97316] text-white flex items-center justify-center shrink-0">
+                <CreditCard className="h-5 w-5" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-stone-900">
+                  Academic Tuition Fee Due: ₹{totalPendingChildAmount.toLocaleString("en-IN")}
+                </h4>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  There are {pendingChildDues.length} pending fee invoice{pendingChildDues.length > 1 ? "s" : ""} for {student?.name || "your child"}. Pay securely online via Razorpay.
+                </p>
+              </div>
+            </div>
+            <Button
+              variant="hero"
+              size="sm"
+              className="text-xs shrink-0 gap-1.5 w-full sm:w-auto"
+              onClick={() => router.push("/parent/payments")}
+            >
+              Pay Fee Online
+            </Button>
           </Card>
         )}
 

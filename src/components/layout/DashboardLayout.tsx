@@ -31,6 +31,7 @@ const navByRole: Record<AppRole, NavItem[]> = {
     { title: "My Courses", url: "/dashboard/classes", icon: BookOpen },
     { title: "Exams", url: "/dashboard/exams", icon: FileText },
     { title: "Results", url: "/dashboard/results", icon: BarChart3 },
+    { title: "Fees & Payments", url: "/dashboard/payments", icon: CreditCard },
     { title: "Profile", url: "/dashboard/profile", icon: UserCircle },
   ],
   teacher: [
@@ -59,6 +60,7 @@ const navByRole: Record<AppRole, NavItem[]> = {
   ],
   parent: [
     { title: "Dashboard", url: "/parent/dashboard", icon: Home },
+    { title: "Fees & Payments", url: "/parent/payments", icon: CreditCard },
     { title: "Profile", url: "/parent/profile", icon: UserCircle },
     { title: "Results", url: "/parent/results", icon: BarChart3 },
     { title: "Growth Meter", url: "/parent/growth", icon: TrendingUp },

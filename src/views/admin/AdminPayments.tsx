@@ -9,16 +9,18 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Search, DollarSign, CreditCard, Send, CheckCircle, AlertCircle, Clock, Trash2 } from "lucide-react";
+import { Plus, Search, DollarSign, CreditCard, Send, CheckCircle, AlertCircle, Clock, Trash2, Receipt, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { useAppData, PaymentObj } from "@/hooks/useAppData";
 import { format } from "date-fns";
+import { PaymentReceiptModal } from "@/components/payments/PaymentReceiptModal";
 
 const AdminPayments = () => {
   const { users, payments, createPayment, deletePayment, updatePayment } = useAppData();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [selectedReceipt, setSelectedReceipt] = useState<PaymentObj | null>(null);
 
   const students = users.filter((u) => u.role === "student");
 
@@ -249,22 +251,42 @@ const AdminPayments = () => {
                       {format(new Date(p.dueDate || ""), "MMM d, yyyy")}
                     </TableCell>
                     <TableCell>
-                      {p.status === "paid" ? (
-                        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-700">
-                          <CheckCircle className="h-3.5 w-3.5" /> Paid
-                        </span>
-                      ) : p.status === "overdue" ? (
-                        <span className="inline-flex items-center gap-1.5 rounded-full bg-red-100 px-2.5 py-1 text-xs font-bold text-red-700 animate-pulse">
-                          <AlertCircle className="h-3.5 w-3.5" /> Overdue
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-700">
-                          <Clock className="h-3 w-3" /> Pending
-                        </span>
-                      )}
+                      <div className="space-y-1">
+                        {p.status === "paid" ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-700">
+                            <CheckCircle className="h-3.5 w-3.5" /> Paid
+                          </span>
+                        ) : p.status === "overdue" ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-red-100 px-2.5 py-1 text-xs font-bold text-red-700 animate-pulse">
+                            <AlertCircle className="h-3.5 w-3.5" /> Overdue
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-700">
+                            <Clock className="h-3 w-3" /> Pending
+                          </span>
+                        )}
+                        {p.razorpayPaymentId && (
+                          <div>
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-orange-50 text-[#f97316] border border-orange-200">
+                              <ShieldCheck className="h-2.5 w-2.5" /> Razorpay
+                            </span>
+                          </div>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell className="text-right pr-4">
-                      <div className="flex justify-end gap-1">
+                      <div className="flex justify-end gap-1 items-center">
+                        {p.status === "paid" && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-8 gap-1 text-xs text-emerald-700 hover:bg-emerald-50"
+                            onClick={() => setSelectedReceipt(p)}
+                          >
+                            <Receipt className="h-3.5 w-3.5" />
+                            Receipt
+                          </Button>
+                        )}
                         {p.status !== "paid" && (
                           <>
                             <Button size="sm" variant="outline" className="h-8 border-emerald-500/40 text-emerald-600 hover:bg-emerald-50" onClick={() => handleMarkAsPaid(p._id! || p.id!)}>
@@ -287,6 +309,14 @@ const AdminPayments = () => {
           </div>
         )}
       </Card>
+
+      <PaymentReceiptModal
+        payment={selectedReceipt}
+        open={Boolean(selectedReceipt)}
+        onOpenChange={(open) => {
+          if (!open) setSelectedReceipt(null);
+        }}
+      />
     </DashboardLayout>
   );
 };

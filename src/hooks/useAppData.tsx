@@ -16,7 +16,7 @@ import {
 } from "@/lib/mockData";
 export interface TimetableObj { id?: string; _id?: string; day: string; time: string; subject: string; teacher: string; studentId?: string; batch?: string; }
 export interface ResultObj { id?: string; _id?: string; studentId: string; subject: string; examType: string; score: number; maxScore: number; grade?: string; trend?: string; date?: string; }
-export interface PaymentObj { id?: string; _id?: string; studentId: string; studentName: string; amount: number; status: "paid" | "pending" | "overdue"; dueDate: string; paidAt?: string; classGrade?: string; batch?: string; created_at?: string; }
+export interface PaymentObj { id?: string; _id?: string; studentId: string; studentName: string; amount: number; currency?: string; status: "paid" | "pending" | "overdue"; dueDate: string; paidAt?: string; classGrade?: string; batch?: string; razorpayOrderId?: string; razorpayPaymentId?: string; razorpaySignature?: string; paymentMethod?: string; receiptNumber?: string; created_at?: string; }
 import { apiClient } from "@/lib/apiClient";
 import { useAuth } from "./useAuth";
 
