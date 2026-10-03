@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyPaymentSignature } from "@/lib/razorpay";
 import { connectDB } from "@/lib/db";
 import { Payment } from "@/models/Payment";
+import { Student } from "@/models/Student";
 
 export async function POST(req: NextRequest) {
   try {
@@ -49,14 +50,30 @@ export async function POST(req: NextRequest) {
       }
 
       if (paymentRecord && paymentRecord.status !== "paid") {
-        const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+        let displayStudentId = String(paymentRecord.studentId);
+        try {
+          const studentDoc = await Student.findOne({
+            $or: [{ _id: paymentRecord.studentId }, { studentId: paymentRecord.studentId }],
+          });
+          if (studentDoc?.studentId) {
+            displayStudentId = studentDoc.studentId;
+          }
+        } catch {}
+
+        const priorCount = await Payment.countDocuments({
+          studentId: paymentRecord.studentId,
+          status: "paid",
+          _id: { $ne: paymentRecord._id },
+        });
+        const seq = String(priorCount + 1).padStart(2, "0");
+        const receiptNumber = `CRF-${displayStudentId}-${seq}`;
+
         paymentRecord.status = "paid";
         paymentRecord.paidAt = new Date();
         paymentRecord.razorpayOrderId = order_id;
         paymentRecord.razorpayPaymentId = payment_id;
         paymentRecord.razorpaySignature = razorpay_signature;
-        paymentRecord.receiptNumber =
-          paymentRecord.receiptNumber || `REC-${dateStr}-${paymentRecord._id.toString().slice(-6).toUpperCase()}`;
+        paymentRecord.receiptNumber = paymentRecord.receiptNumber || receiptNumber;
         await paymentRecord.save();
       }
     } catch (dbErr) {

@@ -56,6 +56,41 @@ const TeacherDashboard = () => {
         ))}
       </div>
 
+      {/* Quick Action Banner for Class Register & Timetable */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+        <div className="p-5 rounded-2xl bg-gradient-to-r from-orange-500 to-amber-500 text-white flex items-center justify-between shadow-sm">
+          <div>
+            <span className="text-xs uppercase font-bold text-orange-100 tracking-wider">Daily Mentorship</span>
+            <h3 className="text-lg font-black mt-0.5">Today's Class Register</h3>
+            <p className="text-xs text-orange-100 mt-1 max-w-sm">
+              Confirm your 1:1 sessions to update live topic coverage and your monthly payroll count.
+            </p>
+          </div>
+          <a
+            href="/teacher/register"
+            className="px-4 py-2 rounded-xl bg-white text-orange-600 font-bold text-xs hover:bg-orange-50 transition-all shrink-0 ml-4 shadow-sm"
+          >
+            Open Register &rarr;
+          </a>
+        </div>
+
+        <div className="p-5 rounded-2xl bg-white border border-gray-100 flex items-center justify-between shadow-sm">
+          <div>
+            <span className="text-xs uppercase font-bold text-gray-400 tracking-wider">Weekly Schedule</span>
+            <h3 className="text-lg font-black text-gray-900 mt-0.5">1:1 Mentorship Timetable</h3>
+            <p className="text-xs text-gray-500 mt-1 max-w-sm">
+              Manage your recurring 1.5 hr slots across Monday to Sunday for each assigned student.
+            </p>
+          </div>
+          <a
+            href="/teacher/weekly-timetable"
+            className="px-4 py-2 rounded-xl bg-orange-500 text-white font-bold text-xs hover:bg-orange-600 transition-all shrink-0 ml-4 shadow-sm"
+          >
+            Manage Slots &rarr;
+          </a>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
           <Card className="p-6 shadow-card border-border/60 h-full">

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/db";
 import { requireAuth } from "@/lib/auth";
 import { Payment } from "@/models/Payment";
+import { Student } from "@/models/Student";
 import { verifyPaymentSignature } from "@/lib/razorpay";
 
 export async function POST(req: NextRequest) {
@@ -38,9 +39,25 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ message: "Payment record not found" }, { status: 404 });
     }
 
-    // Generate formatted receipt number
-    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-    const receiptNumber = `REC-${dateStr}-${payment._id.toString().slice(-6).toUpperCase()}`;
+    // Resolve clean student ID (e.g. C1002)
+    let displayStudentId = String(payment.studentId);
+    try {
+      const studentDoc = await Student.findOne({
+        $or: [{ _id: payment.studentId }, { studentId: payment.studentId }],
+      });
+      if (studentDoc?.studentId) {
+        displayStudentId = studentDoc.studentId;
+      }
+    } catch {}
+
+    // Calculate sequential index for this student
+    const priorCount = await Payment.countDocuments({
+      studentId: payment.studentId,
+      status: "paid",
+      _id: { $ne: payment._id },
+    });
+    const seq = String(priorCount + 1).padStart(2, "0");
+    const receiptNumber = `CRF-${displayStudentId}-${seq}`;
 
     payment.status = "paid";
     payment.paidAt = new Date();

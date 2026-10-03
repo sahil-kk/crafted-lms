@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/db";
 import { Payment } from "@/models/Payment";
+import { Student } from "@/models/Student";
 import { verifyWebhookSignature } from "@/lib/razorpay";
 
 export async function POST(req: NextRequest) {
@@ -37,12 +38,29 @@ export async function POST(req: NextRequest) {
       }
 
       if (payment && payment.status !== "paid") {
-        const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+        let displayStudentId = String(payment.studentId);
+        try {
+          const studentDoc = await Student.findOne({
+            $or: [{ _id: payment.studentId }, { studentId: payment.studentId }],
+          });
+          if (studentDoc?.studentId) {
+            displayStudentId = studentDoc.studentId;
+          }
+        } catch {}
+
+        const priorCount = await Payment.countDocuments({
+          studentId: payment.studentId,
+          status: "paid",
+          _id: { $ne: payment._id },
+        });
+        const seq = String(priorCount + 1).padStart(2, "0");
+        const receiptNumber = `CRF-${displayStudentId}-${seq}`;
+
         payment.status = "paid";
         payment.paidAt = new Date();
         if (orderId) payment.razorpayOrderId = orderId;
         if (paymentId) payment.razorpayPaymentId = paymentId;
-        payment.receiptNumber = payment.receiptNumber || `REC-${dateStr}-${payment._id.toString().slice(-6).toUpperCase()}`;
+        payment.receiptNumber = payment.receiptNumber || receiptNumber;
         if (paymentEntity?.method) payment.paymentMethod = paymentEntity.method;
         await payment.save();
       }

@@ -6,7 +6,8 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   GraduationCap, Home, Newspaper, BookOpen, FileText, BarChart3,
   Bell, LogOut, Menu, Users, Megaphone, Settings, ClipboardList, Calendar,
-  UserCircle, Video, CreditCard, TrendingUp, ShieldCheck, MessageSquare
+  UserCircle, Video, CreditCard, TrendingUp, ShieldCheck, MessageSquare,
+  CalendarCheck, Clock, Banknote
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -36,7 +37,8 @@ const navByRole: Record<AppRole, NavItem[]> = {
   ],
   teacher: [
     { title: "Dashboard", url: "/teacher/dashboard", icon: Home },
-    { title: "Timetable", url: "/teacher/timetable", icon: Calendar },
+    { title: "Class Register", url: "/teacher/register", icon: CalendarCheck },
+    { title: "Weekly Timetable", url: "/teacher/weekly-timetable", icon: Clock },
     { title: "Students", url: "/teacher/students", icon: Users },
     { title: "Classes", url: "/teacher/classes", icon: Video },
     { title: "Exams", url: "/teacher/exams", icon: ClipboardList },
@@ -46,6 +48,9 @@ const navByRole: Record<AppRole, NavItem[]> = {
   ],
   admin: [
     { title: "Dashboard", url: "/admin/dashboard", icon: Home },
+    { title: "Payroll & Hours", url: "/admin/payroll", icon: Banknote },
+    { title: "Weekly Timetable", url: "/teacher/weekly-timetable", icon: Clock },
+    { title: "Syllabus Plan", url: "/admin/syllabus-coverage", icon: BookOpen },
     { title: "Timetable", url: "/admin/timetable", icon: Calendar },
     { title: "Students", url: "/admin/students", icon: Users },
     { title: "Parents", url: "/admin/parents", icon: ShieldCheck },
@@ -206,13 +211,14 @@ const MobileBottomNav = ({ role }: { role: AppRole }) => {
 };
 
 interface DashboardLayoutProps {
-  role: AppRole;
+  role?: AppRole;
   title?: string;
   children: ReactNode;
 }
 
-export const DashboardLayout = ({ role, title, children }: DashboardLayoutProps) => {
-  const { user, signOut } = useAuth();
+export const DashboardLayout = ({ role: propRole, title, children }: DashboardLayoutProps) => {
+  const { user, role: authRole, signOut } = useAuth();
+  const role = propRole || authRole || "student";
   const router = useRouter();
   const pathname = usePathname() || "";
   const { announcements, users } = useAppData();
