@@ -12,6 +12,7 @@ export interface MockUser {
   phone?: string;
   profilePhoto?: string;
   subject?: string;
+  assignedStudents?: string[];
   linkedStudentId?: string;
   relationship?: string;
   assignedCourses?: string[];

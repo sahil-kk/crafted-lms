@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Plus, Trash2, Users, Copy, Pencil, Phone, BookOpen, GraduationCap, School, Loader2, UserCircle } from "lucide-react";
 import { toast } from "sonner";
-import { AppRole } from "@/hooks/useAuth";
+import { AppRole, useAuth } from "@/hooks/useAuth";
 import { useAppData } from "@/hooks/useAppData";
 import { format } from "date-fns";
 
@@ -71,6 +71,7 @@ export const ManageUsersPage = ({ role, viewerRole, title, description }: Props)
     batch: "Batch 1", 
     phone: "", 
     subject: "Physics",
+    assignedStudents: [] as string[],
     linkedStudentId: "",
     relationship: "Parent",
     assignedCourses: ["Physics", "Chemistry", "Biology", "Mathematics"],
@@ -86,17 +87,29 @@ export const ManageUsersPage = ({ role, viewerRole, title, description }: Props)
     batch: "Batch 1",
     phone: "",
     subject: "Physics",
+    assignedStudents: [] as string[],
     linkedStudentId: "",
     relationship: "Parent",
     assignedCourses: [] as string[],
     classLink: ""
   });
 
+  const { user: authUser } = useAuth();
+  const currentTeacher = users.find((u) => u.id === authUser?.id);
+  const teacherAssignedStudentIds = currentTeacher?.assignedStudents || [];
+
   const students = users.filter((user) => user.role === "student");
 
   const rows = useMemo(() => {
     return users
       .filter((user) => user.role === role)
+      .filter((user) => {
+        // If teacher is viewing the student list, only show students assigned to this teacher (or all if none explicitly assigned yet)
+        if (viewerRole === "teacher" && role === "student" && teacherAssignedStudentIds.length > 0) {
+          return teacherAssignedStudentIds.includes(user.id);
+        }
+        return true;
+      })
       .filter((user) => {
         if (role === "student") {
           if (selectedClass !== "all") {
@@ -119,7 +132,7 @@ export const ManageUsersPage = ({ role, viewerRole, title, description }: Props)
           .some((val) => val?.toLowerCase().includes(query.toLowerCase()))
       )
       .sort((a, b) => b.created_at.localeCompare(a.created_at));
-  }, [query, role, users, selectedClass, selectedSubject]);
+  }, [query, role, users, selectedClass, selectedSubject, viewerRole, teacherAssignedStudentIds]);
 
   if (isLoading && users.length === 0) {
     return (
@@ -146,6 +159,7 @@ export const ManageUsersPage = ({ role, viewerRole, title, description }: Props)
         batch: role === "student" ? form.batch : undefined,
         phone: form.phone,
         subject: role === "teacher" ? form.subject : undefined,
+        assignedStudents: role === "teacher" ? form.assignedStudents : undefined,
         linkedStudentId: role === "parent" ? form.linkedStudentId : undefined,
         relationship: role === "parent" ? form.relationship : undefined,
         assignedCourses: role === "student" ? form.assignedCourses : undefined,
@@ -167,6 +181,7 @@ export const ManageUsersPage = ({ role, viewerRole, title, description }: Props)
         batch: "Batch 1", 
         phone: "", 
         subject: "Physics",
+        assignedStudents: [],
         linkedStudentId: "",
         relationship: "Parent",
         assignedCourses: ["Physics", "Chemistry", "Biology", "Mathematics"],
@@ -191,6 +206,7 @@ export const ManageUsersPage = ({ role, viewerRole, title, description }: Props)
         batch: role === "student" ? editForm.batch : undefined,
         phone: editForm.phone,
         subject: role === "teacher" ? editForm.subject : undefined,
+        assignedStudents: role === "teacher" ? editForm.assignedStudents : undefined,
         linkedStudentId: role === "parent" ? editForm.linkedStudentId : undefined,
         relationship: role === "parent" ? editForm.relationship : undefined,
         assignedCourses: role === "student" ? editForm.assignedCourses : undefined,
@@ -216,6 +232,7 @@ export const ManageUsersPage = ({ role, viewerRole, title, description }: Props)
       batch: user.batch || "Batch 1",
       phone: user.phone || "",
       subject: user.subject || "Physics",
+      assignedStudents: user.assignedStudents || [],
       linkedStudentId: user.linkedStudentId || "",
       relationship: user.relationship || "Parent",
       assignedCourses: user.assignedCourses || ["Physics", "Chemistry", "Biology", "Mathematics"],
@@ -372,19 +389,65 @@ export const ManageUsersPage = ({ role, viewerRole, title, description }: Props)
                   )}
 
                   {role === "teacher" && (
-                    <div>
-                      <Label>Subject specialization</Label>
-                      <Select value={form.subject} onValueChange={(val) => setForm({ ...form, subject: val })}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select subject" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Physics">Physics</SelectItem>
-                          <SelectItem value="Chemistry">Chemistry</SelectItem>
-                          <SelectItem value="Mathematics">Mathematics</SelectItem>
-                          <SelectItem value="Biology">Biology</SelectItem>
-                        </SelectContent>
-                      </Select>
+                    <div className="space-y-4">
+                      <div>
+                        <Label>Subject specialization</Label>
+                        <Select value={form.subject} onValueChange={(val) => setForm({ ...form, subject: val })}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select subject" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Physics">Physics</SelectItem>
+                            <SelectItem value="Chemistry">Chemistry</SelectItem>
+                            <SelectItem value="Mathematics">Mathematics</SelectItem>
+                            <SelectItem value="Biology">Biology</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                            Assigned 1:1 Students
+                          </Label>
+                          <span className="text-[11px] text-muted-foreground">
+                            {form.assignedStudents.length} selected
+                          </span>
+                        </div>
+                        <div className="max-h-40 overflow-y-auto rounded-xl border border-border p-2 space-y-1 bg-secondary/10">
+                          {students.length === 0 ? (
+                            <p className="text-xs text-muted-foreground text-center py-2">No students registered yet</p>
+                          ) : (
+                            students.map((student) => {
+                              const isSelected = form.assignedStudents.includes(student.id);
+                              return (
+                                <label
+                                  key={student.id}
+                                  className="flex items-center justify-between p-2 rounded-lg hover:bg-secondary/40 cursor-pointer text-xs transition-colors"
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <Checkbox
+                                      checked={isSelected}
+                                      onCheckedChange={(checked) => {
+                                        setForm((prev) => ({
+                                          ...prev,
+                                          assignedStudents: checked
+                                            ? [...prev.assignedStudents, student.id]
+                                            : prev.assignedStudents.filter((id) => id !== student.id),
+                                        }));
+                                      }}
+                                    />
+                                    <span className="font-medium text-foreground">{student.full_name || student.email}</span>
+                                  </div>
+                                  <span className="font-mono text-[10px] text-muted-foreground">
+                                    {student.studentId || student.course || ""}
+                                  </span>
+                                </label>
+                              );
+                            })
+                          )}
+                        </div>
+                      </div>
                     </div>
                   )}
 
@@ -508,19 +571,65 @@ export const ManageUsersPage = ({ role, viewerRole, title, description }: Props)
               )}
 
               {role === "teacher" && (
-                <div>
-                  <Label>Subject specialization</Label>
-                  <Select value={editForm.subject} onValueChange={(val) => setEditForm({ ...editForm, subject: val })}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select subject" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Physics">Physics</SelectItem>
-                      <SelectItem value="Chemistry">Chemistry</SelectItem>
-                      <SelectItem value="Mathematics">Mathematics</SelectItem>
-                      <SelectItem value="Biology">Biology</SelectItem>
-                    </SelectContent>
-                  </Select>
+                <div className="space-y-4">
+                  <div>
+                    <Label>Subject specialization</Label>
+                    <Select value={editForm.subject} onValueChange={(val) => setEditForm({ ...editForm, subject: val })}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select subject" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Physics">Physics</SelectItem>
+                        <SelectItem value="Chemistry">Chemistry</SelectItem>
+                        <SelectItem value="Mathematics">Mathematics</SelectItem>
+                        <SelectItem value="Biology">Biology</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        Assigned 1:1 Students
+                      </Label>
+                      <span className="text-[11px] text-muted-foreground">
+                        {editForm.assignedStudents.length} selected
+                      </span>
+                    </div>
+                    <div className="max-h-40 overflow-y-auto rounded-xl border border-border p-2 space-y-1 bg-secondary/10">
+                      {students.length === 0 ? (
+                        <p className="text-xs text-muted-foreground text-center py-2">No students registered yet</p>
+                      ) : (
+                        students.map((student) => {
+                          const isSelected = editForm.assignedStudents.includes(student.id);
+                          return (
+                            <label
+                              key={student.id}
+                              className="flex items-center justify-between p-2 rounded-lg hover:bg-secondary/40 cursor-pointer text-xs transition-colors"
+                            >
+                              <div className="flex items-center gap-2">
+                                <Checkbox
+                                  checked={isSelected}
+                                  onCheckedChange={(checked) => {
+                                    setEditForm((prev) => ({
+                                      ...prev,
+                                      assignedStudents: checked
+                                        ? [...prev.assignedStudents, student.id]
+                                        : prev.assignedStudents.filter((id) => id !== student.id),
+                                    }));
+                                  }}
+                                />
+                                <span className="font-medium text-foreground">{student.full_name || student.email}</span>
+                              </div>
+                              <span className="font-mono text-[10px] text-muted-foreground">
+                                {student.studentId || student.course || ""}
+                              </span>
+                            </label>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -631,7 +740,12 @@ export const ManageUsersPage = ({ role, viewerRole, title, description }: Props)
                       <TableHead>Courses</TableHead>
                     </>
                   )}
-                  {role === "teacher" && <TableHead>Subject</TableHead>}
+                  {role === "teacher" && (
+                    <>
+                      <TableHead>Subject</TableHead>
+                      <TableHead>Assigned Students</TableHead>
+                    </>
+                  )}
                   {role === "parent" && <TableHead>Linked Student</TableHead>}
                   {role !== "student" && <TableHead>Joined</TableHead>}
                   {viewerRole === "admin" && role !== "student" && <TableHead className="w-24 text-right pr-4">Actions</TableHead>}
@@ -706,12 +820,34 @@ export const ManageUsersPage = ({ role, viewerRole, title, description }: Props)
                         </>
                       )}
                       {role === "teacher" && (
-                        <TableCell>
-                          <span className="inline-flex items-center gap-1 rounded bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-600">
-                            <GraduationCap className="h-3 w-3" />
-                            {row.subject || "Physics"}
-                          </span>
-                        </TableCell>
+                        <>
+                          <TableCell>
+                            <span className="inline-flex items-center gap-1 rounded bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-600">
+                              <GraduationCap className="h-3 w-3" />
+                              {row.subject || "Physics"}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            {(!row.assignedStudents || row.assignedStudents.length === 0) ? (
+                              <span className="text-xs text-muted-foreground italic">None assigned</span>
+                            ) : (
+                              <div className="flex flex-wrap gap-1 max-w-[240px]">
+                                {row.assignedStudents.map((stId: string) => {
+                                  const st = students.find((s) => s.id === stId);
+                                  return (
+                                    <span
+                                      key={stId}
+                                      className="inline-flex items-center gap-1 rounded bg-orange-50 text-orange-700 border border-orange-200 px-2 py-0.5 text-[10px] font-semibold"
+                                    >
+                                      {st?.full_name || st?.email || stId}
+                                      {st?.studentId ? ` (${st.studentId})` : ""}
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </TableCell>
+                        </>
                       )}
                       {role === "parent" && (
                         <TableCell>

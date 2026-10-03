@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
 
     await connectDB();
     const body = await req.json();
-    const { password, name, email, phone, subject, status } = body;
+    const { password, name, email, phone, subject, status, assignedStudents } = body;
     let username = body.username || email || name?.toLowerCase().replace(/\s+/g, "");
 
     if (!username || !password || !name) {
@@ -51,6 +51,7 @@ export async function POST(req: NextRequest) {
       email,
       phone,
       subject: subject || "Physics",
+      assignedStudents: Array.isArray(assignedStudents) ? assignedStudents : [],
       role: "teacher",
       status: status || "active",
     });

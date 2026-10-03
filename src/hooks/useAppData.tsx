@@ -34,6 +34,7 @@ interface CreateUserInput {
   profilePhoto?: string;
   password?: string;
   assignedCourses?: string[];
+  assignedStudents?: string[];
   classLink?: string;
 }
 
@@ -47,6 +48,7 @@ interface UpdateUserInput {
   batch?: string;
   phone?: string;
   subject?: string;
+  assignedStudents?: string[];
   linkedStudentId?: string;
   relationship?: string;
   profilePhoto?: string;
@@ -215,6 +217,7 @@ function formatBootstrap(bootstrap: any) {
       created_at: u.createdAt || new Date().toISOString(),
       phone: u.phone || "",
       subject: u.subject || "Physics",
+      assignedStudents: (u.assignedStudents || []).map((s: any) => (typeof s === "object" ? s._id || s.id : s)),
     })),
     ...parents.map((u: any) => ({
       id: u._id || u.id,
@@ -409,6 +412,7 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
           body.username = input.email;
           body.phone = input.phone || "";
           body.subject = input.subject || "Physics";
+          if (input.assignedStudents) body.assignedStudents = input.assignedStudents;
         }
         if (input.role === "parent") {
           body.username = input.email;
@@ -434,6 +438,7 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
               batch: input.batch || (input.role === "student" ? "Batch 1" : undefined),
               phone: input.phone || "",
               subject: input.subject || (input.role === "teacher" ? "Physics" : undefined),
+              assignedStudents: input.assignedStudents || [],
               linkedStudentId: input.linkedStudentId,
               relationship: input.relationship,
               classLink: res.student?.classLink || input.classLink || "",
@@ -472,6 +477,7 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
         if (input.course !== undefined) body.course = input.course;
         if (input.batch !== undefined) body.batch = input.batch;
         if (input.subject !== undefined) body.subject = input.subject;
+        if (input.assignedStudents !== undefined) body.assignedStudents = input.assignedStudents;
         if (input.profilePhoto !== undefined) body.profilePhoto = input.profilePhoto;
         if (input.linkedStudentId !== undefined) body.studentId = input.linkedStudentId;
         if (input.relationship !== undefined) body.relationship = input.relationship;
@@ -491,6 +497,7 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
               course: input.course !== undefined ? input.course : u.course,
               batch: input.batch !== undefined ? input.batch : u.batch,
               subject: input.subject !== undefined ? input.subject : u.subject,
+              assignedStudents: input.assignedStudents !== undefined ? input.assignedStudents : u.assignedStudents,
               profilePhoto: input.profilePhoto !== undefined ? input.profilePhoto : u.profilePhoto,
               linkedStudentId: input.linkedStudentId !== undefined ? input.linkedStudentId : u.linkedStudentId,
               relationship: input.relationship !== undefined ? input.relationship : u.relationship,

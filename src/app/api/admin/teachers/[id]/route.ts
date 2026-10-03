@@ -22,7 +22,7 @@ export async function PUT(
     }
 
     await connectDB();
-    const { username, password, name, email, phone, subject, status } = await req.json();
+    const { username, password, name, email, phone, subject, status, assignedStudents } = await req.json();
 
     const teacher = await User.findById(id);
     if (!teacher) {
@@ -41,6 +41,9 @@ export async function PUT(
     if (email !== undefined) teacher.email = email;
     if (phone !== undefined) teacher.phone = phone;
     if (subject) teacher.subject = subject;
+    if (assignedStudents !== undefined && user.role === "admin") {
+      teacher.assignedStudents = Array.isArray(assignedStudents) ? assignedStudents : [];
+    }
     // Only admin can change status
     if (status && user.role === "admin") teacher.status = status;
 

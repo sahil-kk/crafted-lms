@@ -39,6 +39,7 @@ const navByRole: Record<AppRole, NavItem[]> = {
     { title: "Dashboard", url: "/teacher/dashboard", icon: Home },
     { title: "Class Register", url: "/teacher/register", icon: CalendarCheck },
     { title: "Weekly Timetable", url: "/teacher/weekly-timetable", icon: Clock },
+    { title: "Study Materials", url: "/teacher/courses", icon: BookOpen },
     { title: "Students", url: "/teacher/students", icon: Users },
     { title: "Classes", url: "/teacher/classes", icon: Video },
     { title: "Exams", url: "/teacher/exams", icon: ClipboardList },

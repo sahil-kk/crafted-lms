@@ -11,20 +11,25 @@ import {
   ChevronRight, Upload, ClipboardList, Presentation
 } from "lucide-react";
 import { toast } from "sonner";
-import { AppRole } from "@/hooks/useAuth";
+import { AppRole, useAuth } from "@/hooks/useAuth";
 import { useAppData } from "@/hooks/useAppData";
 
 const CLASSES = ["8th", "9th", "10th", "11th", "12th"];
 const SUBJECTS = ["Physics", "Chemistry", "Biology", "Mathematics"];
 
 const AdminCourses = ({ viewerRole = "admin" as AppRole }) => {
+  const { user } = useAuth();
   const { 
+    users,
     courses, 
     addChapter, 
     deleteChapter, 
     uploadMaterial, 
     deleteMaterial 
   } = useAppData();
+
+  const currentTeacher = users.find((u) => u.id === user?.id);
+  const teacherSubject = currentTeacher?.subject || "Physics";
 
   // Navigation states
   const [activeClass, setActiveClass] = useState<string | null>(null);
@@ -187,7 +192,12 @@ const AdminCourses = ({ viewerRole = "admin" as AppRole }) => {
           </div>
 
           <div className="grid sm:grid-cols-2 gap-5">
-            {SUBJECTS.map((sub) => {
+            {SUBJECTS.filter((sub) => {
+              if (viewerRole === "teacher") {
+                return sub.toLowerCase().includes(teacherSubject.toLowerCase()) || teacherSubject.toLowerCase().includes(sub.toLowerCase());
+              }
+              return true;
+            }).map((sub) => {
               const matchingCourse = courses.find(
                 (c) => c.classGrade === activeClass && c.subject === sub
               );

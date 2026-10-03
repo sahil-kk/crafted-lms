@@ -9,6 +9,7 @@ export interface IUser extends Document {
   role: "admin" | "student" | "teacher" | "parent";
   phone?: string;
   subject?: string;
+  assignedStudents?: mongoose.Types.ObjectId[];
   linkedStudentId?: mongoose.Types.ObjectId;
   relationship?: string;
   status: "active" | "inactive";
@@ -36,6 +37,7 @@ const UserSchema = new Schema<IUser>(
     role: { type: String, enum: ["admin", "student", "teacher", "parent"], required: true },
     phone: { type: String, default: "" },
     subject: { type: String, default: "" },
+    assignedStudents: [{ type: Schema.Types.ObjectId, ref: "Student" }],
     linkedStudentId: { type: Schema.Types.ObjectId, ref: "Student", default: null },
     relationship: { type: String, default: "" },
     status: { type: String, enum: ["active", "inactive"], default: "active" },
