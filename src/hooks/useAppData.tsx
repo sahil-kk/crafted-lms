@@ -406,6 +406,7 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
           body.classLink = input.classLink || "";
           body.assignedCourses = input.assignedCourses || ["Physics", "Chemistry", "Biology", "Mathematics"];
         } else {
+          body.username = input.email;
           body.phone = input.phone || "";
           body.subject = input.subject || "Physics";
         }

@@ -25,15 +25,22 @@ export async function POST(req: NextRequest) {
     if (authResult.error) return authResult.error;
 
     await connectDB();
-    const { username, password, name, email, phone, subject, status } = await req.json();
+    const body = await req.json();
+    const { password, name, email, phone, subject, status } = body;
+    let username = body.username || email || name?.toLowerCase().replace(/\s+/g, "");
 
     if (!username || !password || !name) {
       return NextResponse.json({ message: "Please provide username, password, and name" }, { status: 400 });
     }
 
-    const existing = await User.findOne({ username });
+    const existing = await User.findOne({
+      $or: [
+        { username },
+        ...(email ? [{ email: email.toLowerCase() }] : []),
+      ],
+    });
     if (existing) {
-      return NextResponse.json({ message: "Username already exists" }, { status: 400 });
+      return NextResponse.json({ message: "A teacher with this username or email already exists" }, { status: 400 });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
