@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Card } from "@/components/ui/card";
@@ -13,10 +13,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import {
   Plus, Trash2, ClipboardList, Pencil, Dumbbell, BookOpen,
-  FileText, Calendar, Clock, AlertCircle, CheckCircle2, Search, Loader2
+  FileText, Calendar, Clock, AlertCircle, CheckCircle2, Search, Loader2, Lock
 } from "lucide-react";
 import { toast } from "sonner";
-import { AppRole } from "@/hooks/useAuth";
+import { AppRole, useAuth } from "@/hooks/useAuth";
 import { useAppData } from "@/hooks/useAppData";
 import { format, isFuture } from "date-fns";
 
@@ -44,39 +44,94 @@ const matchTab = (exam: any, tab: ExamTab): boolean => {
 
 const ExamsManager = ({ viewerRole }: Props) => {
   const { courses, exams, users, createExam, deleteExam, updateExam, isLoading } = useAppData();
+  const { user: authUser } = useAuth();
   const [open, setOpen]         = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<ExamTab>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const students = users.filter((u) => u.role === "student");
+  const currentTeacher = useMemo(() => {
+    return users.find((u) => u.id === authUser?.id);
+  }, [users, authUser?.id]);
+
+  const teacherSubject = currentTeacher?.subject || "";
+  const teacherAssignedStudentIds = currentTeacher?.assignedStudents || [];
+
+  const visibleStudents = useMemo(() => {
+    const allStudents = users.filter((u) => u.role === "student");
+    if (viewerRole === "teacher") {
+      return allStudents.filter((stu) => {
+        const isDirectlyAssigned = teacherAssignedStudentIds.includes(stu.id) || (stu.studentId && teacherAssignedStudentIds.includes(stu.studentId));
+        const isMentorAssigned = stu.mentorAssignments?.some(
+          (ma: any) => ma.teacherId === authUser?.id || ma.teacherId === currentTeacher?.id
+        );
+        return Boolean(isDirectlyAssigned || isMentorAssigned);
+      });
+    }
+    return allStudents;
+  }, [users, viewerRole, teacherAssignedStudentIds, authUser?.id, currentTeacher?.id]);
 
   const [form, setForm] = useState({
-    title: "", description: "", exam_type: "unit_test",
-    duration_minutes: 30, starts_at: "", course_id: "", studentId: "",
+    title: "",
+    description: viewerRole === "teacher" && teacherSubject ? teacherSubject : "",
+    exam_type: "unit_test",
+    duration_minutes: 30,
+    starts_at: "",
+    course_id: "",
+    studentId: "",
   });
 
   const [editForm, setEditForm] = useState({
-    id: "", title: "", description: "", exam_type: "unit_test",
-    duration_minutes: 30, starts_at: "", course_id: "", studentId: "",
+    id: "",
+    title: "",
+    description: "",
+    exam_type: "unit_test",
+    duration_minutes: 30,
+    starts_at: "",
+    course_id: "",
+    studentId: "",
   });
 
   const [file, setFile] = useState<File | null>(null);
 
-  const allRows = [...exams]
-    .filter((e) => {
-      if (!searchQuery.trim()) return true;
-      const q = searchQuery.toLowerCase();
-      return (
-        (e.title || "").toLowerCase().includes(q) ||
-        (e.description || "").toLowerCase().includes(q) ||
-        ((e as any).subject || "").toLowerCase().includes(q)
-      );
-    })
-    .sort((a, b) =>
-      a.created_at ? b.created_at.localeCompare(a.created_at) : -1
+  useEffect(() => {
+    if (viewerRole === "teacher" && teacherSubject) {
+      setForm((prev) => ({ ...prev, description: teacherSubject }));
+    }
+  }, [viewerRole, teacherSubject]);
+
+  const allRows = useMemo(() => {
+    const allowedStudentIds = new Set(
+      visibleStudents.flatMap((s) => [s.id, s.studentId].filter(Boolean) as string[])
     );
+
+    return [...exams]
+      .filter((e) => {
+        if (viewerRole === "teacher") {
+          // Strictly teacher's subject
+          const examSubj = ((e as any).subject || e.description || "").toLowerCase().trim();
+          if (teacherSubject && examSubj && !examSubj.includes(teacherSubject.toLowerCase().trim())) {
+            return false;
+          }
+          // Student isolation
+          const examStuId = (e as any).studentId || e.studentId;
+          if (examStuId && !allowedStudentIds.has(examStuId)) {
+            return false;
+          }
+        }
+        if (!searchQuery.trim()) return true;
+        const q = searchQuery.toLowerCase();
+        return (
+          (e.title || "").toLowerCase().includes(q) ||
+          (e.description || "").toLowerCase().includes(q) ||
+          ((e as any).subject || "").toLowerCase().includes(q)
+        );
+      })
+      .sort((a, b) =>
+        a.created_at ? b.created_at.localeCompare(a.created_at) : -1
+      );
+  }, [exams, viewerRole, teacherSubject, visibleStudents, searchQuery]);
 
   const tabRows = allRows.filter((e) => matchTab(e, activeTab));
 
@@ -89,7 +144,7 @@ const ExamsManager = ({ viewerRole }: Props) => {
     setEditForm({
       id: exam.id || exam._id,
       title: exam.title,
-      description: exam.description || exam.subject || "",
+      description: viewerRole === "teacher" && teacherSubject ? teacherSubject : (exam.description || exam.subject || ""),
       exam_type: exam.exam_type || "unit_test",
       duration_minutes: exam.duration_minutes || 30,
       starts_at: exam.starts_at || "",
@@ -104,7 +159,7 @@ const ExamsManager = ({ viewerRole }: Props) => {
     try {
       await updateExam(editForm.id, {
         title: editForm.title,
-        description: editForm.description,
+        description: viewerRole === "teacher" && teacherSubject ? teacherSubject : editForm.description,
         exam_type: editForm.exam_type,
         duration_minutes: Number(editForm.duration_minutes),
         starts_at: editForm.starts_at ? new Date(editForm.starts_at).toISOString() : null,
@@ -128,7 +183,7 @@ const ExamsManager = ({ viewerRole }: Props) => {
     try {
       await createExam({
         title: form.title.trim(),
-        description: form.description.trim(),
+        description: viewerRole === "teacher" && teacherSubject ? teacherSubject : form.description.trim(),
         exam_type: form.exam_type,
         duration_minutes: Number(form.duration_minutes) || 30,
         starts_at: form.starts_at ? new Date(form.starts_at).toISOString() : null,
@@ -138,7 +193,15 @@ const ExamsManager = ({ viewerRole }: Props) => {
       });
       toast.success("Exam created successfully.");
       setOpen(false);
-      setForm({ title: "", description: "", exam_type: "unit_test", duration_minutes: 30, starts_at: "", course_id: "", studentId: "" });
+      setForm({
+        title: "",
+        description: viewerRole === "teacher" && teacherSubject ? teacherSubject : "",
+        exam_type: "unit_test",
+        duration_minutes: 30,
+        starts_at: "",
+        course_id: "",
+        studentId: "",
+      });
       setFile(null);
     } catch (err: any) {
       toast.error(err?.message || "Failed to create exam");
@@ -213,16 +276,34 @@ const ExamsManager = ({ viewerRole }: Props) => {
                   <Input type="datetime-local" value={form.starts_at} onChange={(e) => setForm({ ...form, starts_at: e.target.value })} />
                 </div>
                 <div>
-                  <Label>Subject / Description</Label>
-                  <Textarea rows={2} placeholder="e.g. Physics - Laws of Motion" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+                  <div className="flex items-center justify-between mb-1.5">
+                    <Label>Subject / Description</Label>
+                    {viewerRole === "teacher" && (
+                      <span className="text-xs text-muted-foreground flex items-center gap-1 font-normal">
+                        <Lock className="h-3 w-3" /> Locked to your assigned subject ({teacherSubject})
+                      </span>
+                    )}
+                  </div>
+                  <Input
+                    required
+                    value={viewerRole === "teacher" && teacherSubject ? teacherSubject : form.description}
+                    onChange={(e) => setForm({ ...form, description: e.target.value })}
+                    readOnly={viewerRole === "teacher"}
+                    className={viewerRole === "teacher" ? "bg-muted cursor-not-allowed font-medium" : ""}
+                    placeholder="e.g. Physics - Laws of Motion"
+                  />
                 </div>
                 <div>
-                  <Label>Target Student (optional — leave blank for all)</Label>
+                  <Label>Target Student (optional — leave blank for all assigned)</Label>
                   <Select value={form.studentId || "none"} onValueChange={(v) => setForm({ ...form, studentId: v === "none" ? "" : v })}>
-                    <SelectTrigger><SelectValue placeholder="Broadcast to All" /></SelectTrigger>
+                    <SelectTrigger><SelectValue placeholder={viewerRole === "teacher" ? "All My Assigned Students" : "Broadcast to All Students"} /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">Broadcast to All Students</SelectItem>
-                      {students.map((s) => <SelectItem key={s.id} value={s.id}>{s.full_name || s.email}</SelectItem>)}
+                      <SelectItem value="none">{viewerRole === "teacher" ? "All My Assigned Students" : "Broadcast to All Students"}</SelectItem>
+                      {visibleStudents.map((s) => (
+                        <SelectItem key={s.id} value={s.id}>
+                          {s.full_name || s.email} {s.course ? `(${s.course})` : ""}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -267,16 +348,33 @@ const ExamsManager = ({ viewerRole }: Props) => {
                 <Input type="datetime-local" value={editForm.starts_at} onChange={(e) => setEditForm({ ...editForm, starts_at: e.target.value })} />
               </div>
               <div>
-                <Label>Subject / Description</Label>
-                <Textarea rows={2} value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} />
+                <div className="flex items-center justify-between mb-1.5">
+                  <Label>Subject / Description</Label>
+                  {viewerRole === "teacher" && (
+                    <span className="text-xs text-muted-foreground flex items-center gap-1 font-normal">
+                      <Lock className="h-3 w-3" /> Locked to your assigned subject ({teacherSubject})
+                    </span>
+                  )}
+                </div>
+                <Input
+                  required
+                  value={viewerRole === "teacher" && teacherSubject ? teacherSubject : editForm.description}
+                  onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                  readOnly={viewerRole === "teacher"}
+                  className={viewerRole === "teacher" ? "bg-muted cursor-not-allowed font-medium" : ""}
+                />
               </div>
               <div>
                 <Label>Target Student (optional)</Label>
                 <Select value={editForm.studentId || "none"} onValueChange={(v) => setEditForm({ ...editForm, studentId: v === "none" ? "" : v })}>
-                  <SelectTrigger><SelectValue placeholder="Broadcast to All" /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder={viewerRole === "teacher" ? "All My Assigned Students" : "Broadcast to All"} /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">Broadcast to All</SelectItem>
-                    {students.map((s) => <SelectItem key={s.id} value={s.id}>{s.full_name || s.email}</SelectItem>)}
+                    <SelectItem value="none">{viewerRole === "teacher" ? "All My Assigned Students" : "Broadcast to All"}</SelectItem>
+                    {visibleStudents.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {s.full_name || s.email} {s.course ? `(${s.course})` : ""}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -364,7 +462,8 @@ const ExamsManager = ({ viewerRole }: Props) => {
             const upcoming = row.starts_at ? isFuture(new Date(row.starts_at)) : false;
             const cfg = TAB_CONFIG.find((t) => t.key !== "all" && matchTab(row, t.key)) || TAB_CONFIG[1];
             const targetedStudent = row.studentId
-              ? students.find((s) => s.id === row.studentId || (s as any)._id === row.studentId || s.studentId === row.studentId)
+              ? visibleStudents.find((s) => s.id === row.studentId || (s as any)._id === row.studentId || s.studentId === row.studentId) ||
+                users.find((s) => s.id === row.studentId || (s as any)._id === row.studentId || s.studentId === row.studentId)
               : null;
 
             return (

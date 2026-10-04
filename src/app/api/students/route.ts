@@ -3,6 +3,8 @@ import bcrypt from "bcryptjs";
 import { connectDB } from "@/lib/db";
 import { requireAuth, sanitizeUser } from "@/lib/auth";
 import { Student } from "@/models/Student";
+import { User } from "@/models/User";
+import { syncMentorAssignments, getTeacherScope, assignMentorToStudent } from "@/lib/mentorSync";
 
 // GET all students (requires authenticated session)
 export async function GET(req: NextRequest) {
@@ -11,7 +13,15 @@ export async function GET(req: NextRequest) {
     if (authResult.error) return authResult.error;
 
     await connectDB();
-    const students = await Student.find().sort({ createdAt: -1 }).select("-password");
+    await syncMentorAssignments();
+
+    let query: any = {};
+    if (authResult.user.role === "teacher") {
+      const scope = await getTeacherScope(authResult.user.id);
+      query = { _id: { $in: scope.assignedStudentObjectIds } };
+    }
+
+    const students = await Student.find(query).sort({ createdAt: -1 }).select("-password");
     return NextResponse.json(students);
   } catch (err: any) {
     return NextResponse.json({ message: err.message || "Server error" }, { status: 500 });
@@ -26,7 +36,7 @@ export async function POST(req: NextRequest) {
 
     await connectDB();
     const body = await req.json();
-    const { studentId, password, name, email, phone, course, status, batch, assignedCourses, classLink } = body;
+    const { studentId, password, name, email, phone, course, status, batch, assignedCourses, classLink, mentorAssignments } = body;
 
     if (!password || !name || !email || !course) {
       return NextResponse.json({ message: "Please fill all required fields" }, { status: 400 });
@@ -89,6 +99,18 @@ export async function POST(req: NextRequest) {
     });
 
     await newStudent.save();
+
+    if (Array.isArray(mentorAssignments) && mentorAssignments.length > 0) {
+      for (const ma of mentorAssignments) {
+        if (ma.subject && ma.teacherId) {
+          await assignMentorToStudent(newStudent._id, ma.teacherId, ma.subject);
+        }
+      }
+      const refreshed = await Student.findById(newStudent._id);
+      if (refreshed) {
+        newStudent.mentorAssignments = refreshed.mentorAssignments;
+      }
+    }
     return NextResponse.json(
       { message: "Student added successfully", student: sanitizeUser(newStudent) },
       { status: 201 }

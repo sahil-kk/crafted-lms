@@ -20,6 +20,17 @@ export async function DELETE(
       return NextResponse.json({ message: "Course not found" }, { status: 404 });
     }
 
+    if (authResult.user.role === "teacher") {
+      const { getTeacherScope } = await import("@/lib/mentorSync");
+      const scope = await getTeacherScope(authResult.user.id);
+      if (course.subject.toLowerCase() !== scope.subject.toLowerCase()) {
+        return NextResponse.json({ message: "Access forbidden: cannot delete chapters for another subject" }, { status: 403 });
+      }
+      if (course.studentId && !scope.allStudentIdentifiers.includes(course.studentId.toString())) {
+        return NextResponse.json({ message: "Access forbidden: student not assigned to you" }, { status: 403 });
+      }
+    }
+
     course.chapters = course.chapters.filter((ch: any) => ch._id.toString() !== chapterId);
     await course.save();
 

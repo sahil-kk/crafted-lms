@@ -37,28 +37,74 @@ const seedCoursesIfNeeded = async () => {
   hasCheckedSeed = true;
 };
 
-import { requireAuth } from "@/lib/auth";
+import mongoose from "mongoose";
+import { requireAuth, escapeRegex } from "@/lib/auth";
 import { serverCache } from "@/lib/cache";
+import { getTeacherScope } from "@/lib/mentorSync";
+import { Student } from "@/models/Student";
 
-// GET all courses
+// GET courses (scoped by role, subject, and student)
 export async function GET(req: NextRequest) {
   try {
     const authResult = requireAuth(req);
     if (authResult.error) return authResult.error;
 
-    const cached = serverCache.get<any[]>("courses_all");
-    if (cached) {
-      return NextResponse.json(cached, {
-        headers: { "X-Cache": "HIT", "Cache-Control": "private, no-cache, must-revalidate" },
-      });
-    }
+    const { user } = authResult;
+    const { searchParams } = new URL(req.url);
+    const paramStudentId = searchParams.get("studentId");
+    const paramClassGrade = searchParams.get("classGrade");
+    const paramSubject = searchParams.get("subject");
 
     await connectDB();
     await seedCoursesIfNeeded();
-    const courses = await Course.find().sort({ classGrade: 1, subject: 1 }).lean();
-    serverCache.set("courses_all", courses, 60, ["courses", "bootstrap"]);
+
+    let query: any = {};
+
+    if (paramClassGrade) query.classGrade = paramClassGrade;
+    if (paramSubject) query.subject = { $regex: new RegExp(`^${escapeRegex(paramSubject)}$`, "i") };
+
+    if (user.role === "teacher") {
+      const scope = await getTeacherScope(user.id);
+      query.subject = { $regex: new RegExp(`^${escapeRegex(scope.subject)}$`, "i") };
+
+      if (paramStudentId) {
+        if (!scope.allStudentIdentifiers.includes(paramStudentId)) {
+          return NextResponse.json(
+            { message: "Access forbidden: student not assigned to you" },
+            { status: 403 }
+          );
+        }
+        query.studentId = new mongoose.Types.ObjectId(paramStudentId);
+      } else {
+        query.$or = [
+          { studentId: null },
+          { studentId: { $in: scope.assignedStudentObjectIds } },
+        ];
+      }
+    } else if (user.role === "student") {
+      const studentIds = [user.id, user.studentId].filter((id): id is string => Boolean(id));
+      const studentDoc = await Student.findOne({
+        $or: [
+          ...(mongoose.Types.ObjectId.isValid(user.id) ? [{ _id: new mongoose.Types.ObjectId(user.id) }] : []),
+          ...(user.studentId ? [{ studentId: user.studentId }] : []),
+        ],
+      });
+
+      const studentObjId = studentDoc?._id || (mongoose.Types.ObjectId.isValid(user.id) ? new mongoose.Types.ObjectId(user.id) : null);
+
+      query.$or = [
+        { studentId: null },
+        ...(studentObjId ? [{ studentId: studentObjId }] : []),
+      ];
+    } else if (user.role === "admin") {
+      if (paramStudentId) {
+        query.studentId = paramStudentId === "null" || paramStudentId === "general" ? null : new mongoose.Types.ObjectId(paramStudentId);
+      }
+    }
+
+    const courses = await Course.find(query).sort({ classGrade: 1, subject: 1 }).lean();
     return NextResponse.json(courses, {
-      headers: { "X-Cache": "MISS", "Cache-Control": "private, no-cache, must-revalidate" },
+      headers: { "Cache-Control": "private, no-cache, must-revalidate" },
     });
   } catch (err: any) {
     return NextResponse.json({ message: err.message || "Server error" }, { status: 500 });
@@ -72,20 +118,42 @@ export async function POST(req: NextRequest) {
     if (authResult.error) return authResult.error;
 
     await connectDB();
-    const { classGrade, subject } = await req.json();
+    const body = await req.json();
+    let { classGrade, subject, studentId } = body;
 
     if (!classGrade || !subject) {
       return NextResponse.json({ message: "Class/Grade and Subject are required" }, { status: 400 });
     }
 
-    const existing = await Course.findOne({ classGrade, subject });
+    if (authResult.user.role === "teacher") {
+      const scope = await getTeacherScope(authResult.user.id);
+      subject = scope.subject || "Physics";
+      if (studentId && !scope.allStudentIdentifiers.includes(studentId)) {
+        return NextResponse.json(
+          { message: "Access forbidden: cannot create materials for unassigned students" },
+          { status: 403 }
+        );
+      }
+    }
+
+    const studentObjId = studentId && studentId !== "general" && studentId !== "null"
+      ? new mongoose.Types.ObjectId(studentId)
+      : null;
+
+    const existing = await Course.findOne({
+      classGrade,
+      subject: { $regex: new RegExp(`^${escapeRegex(subject)}$`, "i") },
+      studentId: studentObjId,
+    });
+
     if (existing) {
-      return NextResponse.json({ message: "Course combination already exists", course: existing }, { status: 200 });
+      return NextResponse.json({ message: "Course already exists", course: existing }, { status: 200 });
     }
 
     const newCourse = new Course({
       classGrade,
       subject,
+      studentId: studentObjId,
       chapters: [],
     });
 

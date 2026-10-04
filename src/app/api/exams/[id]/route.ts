@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/db";
 import { requireAuth } from "@/lib/auth";
 import { Exam } from "@/models/Exam";
+import { getTeacherScope } from "@/lib/mentorSync";
 
 // GET single exam
 export async function GET(
@@ -18,6 +19,17 @@ export async function GET(
     if (!exam) {
       return NextResponse.json({ message: "Exam not found" }, { status: 404 });
     }
+
+    if (authResult.user.role === "teacher") {
+      const scope = await getTeacherScope(authResult.user.id);
+      if (exam.subject.toLowerCase() !== scope.subject.toLowerCase()) {
+        return NextResponse.json({ message: "Access forbidden: not your subject" }, { status: 403 });
+      }
+      if (exam.studentId && !scope.allStudentIdentifiers.includes(exam.studentId)) {
+        return NextResponse.json({ message: "Access forbidden: student not assigned to you" }, { status: 403 });
+      }
+    }
+
     return NextResponse.json(exam);
   } catch (err: any) {
     return NextResponse.json({ message: err.message || "Server error" }, { status: 500 });
@@ -35,6 +47,21 @@ export async function PUT(
 
     await connectDB();
     const { id } = await params;
+
+    const existingExam = await Exam.findById(id);
+    if (!existingExam) {
+      return NextResponse.json({ message: "Exam not found" }, { status: 404 });
+    }
+
+    if (authResult.user.role === "teacher") {
+      const scope = await getTeacherScope(authResult.user.id);
+      if (existingExam.subject.toLowerCase() !== scope.subject.toLowerCase()) {
+        return NextResponse.json({ message: "Access forbidden: cannot edit exam for another subject" }, { status: 403 });
+      }
+      if (existingExam.studentId && !scope.allStudentIdentifiers.includes(existingExam.studentId)) {
+        return NextResponse.json({ message: "Access forbidden: student not assigned to you" }, { status: 403 });
+      }
+    }
     const contentType = req.headers.get("content-type") || "";
 
     let updateData: any = {};
@@ -73,6 +100,17 @@ export async function PUT(
       if (body.questions !== undefined) updateData.questions = body.questions;
     }
 
+    if (authResult.user.role === "teacher") {
+      const scope = await getTeacherScope(authResult.user.id);
+      updateData.subject = scope.subject;
+      if (updateData.studentId && !scope.allStudentIdentifiers.includes(updateData.studentId)) {
+        return NextResponse.json(
+          { message: "Access forbidden: cannot target students outside your mentorship" },
+          { status: 403 }
+        );
+      }
+    }
+
     const updated = await Exam.findByIdAndUpdate(
       id,
       { $set: updateData },
@@ -103,10 +141,23 @@ export async function DELETE(
 
     await connectDB();
     const { id } = await params;
-    const deleted = await Exam.findByIdAndDelete(id);
-    if (!deleted) {
+
+    const exam = await Exam.findById(id);
+    if (!exam) {
       return NextResponse.json({ message: "Exam not found" }, { status: 404 });
     }
+
+    if (authResult.user.role === "teacher") {
+      const scope = await getTeacherScope(authResult.user.id);
+      if (exam.subject.toLowerCase() !== scope.subject.toLowerCase()) {
+        return NextResponse.json({ message: "Access forbidden: cannot delete exams outside your subject" }, { status: 403 });
+      }
+      if (exam.studentId && !scope.allStudentIdentifiers.includes(exam.studentId)) {
+        return NextResponse.json({ message: "Access forbidden: student not assigned to you" }, { status: 403 });
+      }
+    }
+
+    await Exam.findByIdAndDelete(id);
     return NextResponse.json({ message: "Exam deleted successfully" });
   } catch (err: any) {
     return NextResponse.json({ message: err.message || "Server error" }, { status: 500 });

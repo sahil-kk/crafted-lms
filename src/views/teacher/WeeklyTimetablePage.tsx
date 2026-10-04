@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
@@ -10,26 +10,40 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Calendar, Clock, Plus, Trash2, User, BookOpen, CheckCircle, AlertCircle } from "lucide-react";
+import { Calendar, Clock, Plus, Trash2, User, BookOpen, CheckCircle, AlertCircle, Lock } from "lucide-react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/apiClient";
 import { useAuth } from "@/hooks/useAuth";
+import { useAppData } from "@/hooks/useAppData";
 
 const DAYS_OF_WEEK = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] as const;
 
 export default function WeeklyTimetablePage() {
   const { user, role } = useAuth();
+  const { users } = useAppData();
   const queryClient = useQueryClient();
   const [selectedDay, setSelectedDay] = useState<string>("all");
   const [isAddOpen, setIsAddOpen] = useState(false);
 
+  const currentTeacher = useMemo(() => {
+    return users.find((u) => u.id === user?.id);
+  }, [users, user?.id]);
+
+  const teacherSubject = currentTeacher?.subject || user?.subject || "Physics";
+
   // Form state
   const [studentId, setStudentId] = useState("");
-  const [subject, setSubject] = useState("");
+  const [subject, setSubject] = useState(role === "teacher" && teacherSubject ? teacherSubject : "");
   const [dayOfWeek, setDayOfWeek] = useState<string>("Monday");
   const [startTime, setStartTime] = useState("16:00");
   const [durationHours, setDurationHours] = useState("1.5");
   const [teacherId, setTeacherId] = useState(user?.id || "");
+
+  useEffect(() => {
+    if (role === "teacher" && teacherSubject) {
+      setSubject(teacherSubject);
+    }
+  }, [role, teacherSubject]);
 
   // Fetch slots
   const { data, isLoading } = useQuery({
@@ -40,9 +54,9 @@ export default function WeeklyTimetablePage() {
     },
   });
 
-  // Fetch active students
+  // Fetch active students (automatically filtered to teacher's assigned students by API)
   const { data: students = [] } = useQuery({
-    queryKey: ["students-list"],
+    queryKey: ["students-list", user?.id],
     queryFn: async () => {
       const res = await apiClient<any>("/api/students");
       return res || [];
@@ -61,7 +75,7 @@ export default function WeeklyTimetablePage() {
       toast.success("1:1 Weekly slot scheduled successfully!");
       setIsAddOpen(false);
       setStudentId("");
-      setSubject("");
+      setSubject(role === "teacher" && teacherSubject ? teacherSubject : "");
       queryClient.invalidateQueries({ queryKey: ["weekly-timetable"] });
       queryClient.invalidateQueries({ queryKey: ["class-register-today"] });
     },
@@ -91,7 +105,8 @@ export default function WeeklyTimetablePage() {
 
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!studentId || !subject || !dayOfWeek || !startTime) {
+    const finalSubject = role === "teacher" && teacherSubject ? teacherSubject : subject;
+    if (!studentId || !finalSubject || !dayOfWeek || !startTime) {
       toast.error("Please fill in all required fields");
       return;
     }
@@ -99,7 +114,7 @@ export default function WeeklyTimetablePage() {
     createSlotMutation.mutate({
       teacherId: user?.id,
       studentId,
-      subject,
+      subject: finalSubject,
       dayOfWeek,
       startTime,
       durationHours: Number(durationHours) || 1.5,
@@ -253,26 +268,41 @@ export default function WeeklyTimetablePage() {
             <form onSubmit={handleCreate} className="space-y-4 py-2">
               <div className="space-y-1.5">
                 <Label className="text-xs font-bold text-gray-700">Select Student *</Label>
-                <Select value={studentId} onValueChange={setStudentId}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Choose a student..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {students.map((st: any) => (
-                      <SelectItem key={st._id} value={st.userId?._id || st.userId || st._id}>
-                        {st.name} {st.studentId ? `(${st.studentId})` : ""} - {st.grade || "Grade"}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {students.length === 0 ? (
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800">
+                    No students currently assigned to your mentorship. Please contact administrator to assign students.
+                  </div>
+                ) : (
+                  <Select value={studentId} onValueChange={setStudentId}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Choose an assigned student..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {students.map((st: any) => (
+                        <SelectItem key={st._id} value={st._id}>
+                          {st.name} {st.studentId ? `(${st.studentId})` : ""} - {st.course || st.grade || "Grade"}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-gray-700">Subject *</Label>
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-bold text-gray-700">Subject *</Label>
+                  {role === "teacher" && (
+                    <span className="text-[11px] text-gray-500 flex items-center gap-1 font-normal">
+                      <Lock className="w-3 h-3" /> Locked to your assigned subject ({teacherSubject})
+                    </span>
+                  )}
+                </div>
                 <Input
-                  placeholder="e.g. Physics (JEE Adv), Mathematics, NEET Biology"
-                  value={subject}
+                  placeholder="e.g. Physics"
+                  value={role === "teacher" && teacherSubject ? teacherSubject : subject}
                   onChange={(e) => setSubject(e.target.value)}
+                  readOnly={role === "teacher"}
+                  className={role === "teacher" ? "bg-gray-100 cursor-not-allowed font-medium text-gray-700" : ""}
                   required
                 />
               </div>

@@ -23,7 +23,7 @@ export interface IClassRegisterEntry extends Document {
 const ClassRegisterEntrySchema = new Schema<IClassRegisterEntry>(
   {
     teacherId: { type: Schema.Types.ObjectId, ref: "User", required: true },
-    studentId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    studentId: { type: Schema.Types.ObjectId, ref: "Student", required: true },
     subject: { type: String, required: true },
     sessionDate: { type: String, required: true },
     startTime: { type: String, required: true },

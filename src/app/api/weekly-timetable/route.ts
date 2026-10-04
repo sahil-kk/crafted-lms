@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/db";
 import { ScheduledSlot } from "@/models/ScheduledSlot";
 import { requireAuth } from "@/lib/auth";
+import { getTeacherScope, assignMentorToStudent } from "@/lib/mentorSync";
 import mongoose from "mongoose";
 
 // GET: fetch weekly scheduled slots (filterable by teacherId, studentId, dayOfWeek)
@@ -53,6 +54,23 @@ export async function POST(req: NextRequest) {
     // If teacher, force teacherId to their own id
     if (authResult.user.role === "teacher") {
       teacherId = authResult.user.id;
+      const scope = await getTeacherScope(teacherId);
+      subject = scope.subject || "Physics";
+      if (!scope.allStudentIdentifiers.includes(studentId)) {
+        return NextResponse.json(
+          { success: false, message: "Access forbidden: you can only schedule sessions for your assigned students." },
+          { status: 403 }
+        );
+      }
+    } else {
+      // Admin: enforce teacher's subject and ensure student is assigned
+      const scope = await getTeacherScope(teacherId);
+      if (scope.subject) {
+        subject = scope.subject;
+      }
+      if (!scope.allStudentIdentifiers.includes(studentId)) {
+        await assignMentorToStudent(studentId, teacherId, subject);
+      }
     }
 
     if (!teacherId || !studentId || !subject || !dayOfWeek || !startTime) {

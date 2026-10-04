@@ -75,7 +75,9 @@ export const ManageUsersPage = ({ role, viewerRole, title, description }: Props)
     linkedStudentId: "",
     relationship: "Parent",
     assignedCourses: ["Physics", "Chemistry", "Biology", "Mathematics"],
-    classLink: ""
+    classLink: "",
+    ratePerSession: role === "teacher" ? "1000" : "",
+    mentorAssignments: [] as { subject: string; teacherId: string }[],
   });
   
   const [editForm, setEditForm] = useState({ 
@@ -84,14 +86,16 @@ export const ManageUsersPage = ({ role, viewerRole, title, description }: Props)
     full_name: "", 
     password: "", 
     course: "10th", 
-    batch: "Batch 1",
-    phone: "",
+    batch: "Batch 1", 
+    phone: "", 
     subject: "Physics",
     assignedStudents: [] as string[],
     linkedStudentId: "",
     relationship: "Parent",
     assignedCourses: [] as string[],
-    classLink: ""
+    classLink: "",
+    ratePerSession: "1000",
+    mentorAssignments: [] as { subject: string; teacherId: string }[],
   });
 
   const { user: authUser } = useAuth();
@@ -99,14 +103,19 @@ export const ManageUsersPage = ({ role, viewerRole, title, description }: Props)
   const teacherAssignedStudentIds = currentTeacher?.assignedStudents || [];
 
   const students = users.filter((user) => user.role === "student");
+  const teachers = users.filter((user) => user.role === "teacher");
 
   const rows = useMemo(() => {
     return users
       .filter((user) => user.role === role)
       .filter((user) => {
-        // If teacher is viewing the student list, only show students assigned to this teacher (or all if none explicitly assigned yet)
-        if (viewerRole === "teacher" && role === "student" && teacherAssignedStudentIds.length > 0) {
-          return teacherAssignedStudentIds.includes(user.id);
+        // Strict isolation: If teacher is viewing student list, only show students assigned to this teacher
+        if (viewerRole === "teacher" && role === "student") {
+          const isDirectlyAssigned = teacherAssignedStudentIds.includes(user.id);
+          const isMentorAssigned = user.mentorAssignments?.some(
+            (ma: any) => ma.teacherId === authUser?.id || ma.teacherId === currentTeacher?.id
+          );
+          return Boolean(isDirectlyAssigned || isMentorAssigned);
         }
         return true;
       })
@@ -160,10 +169,12 @@ export const ManageUsersPage = ({ role, viewerRole, title, description }: Props)
         phone: form.phone,
         subject: role === "teacher" ? form.subject : undefined,
         assignedStudents: role === "teacher" ? form.assignedStudents : undefined,
+        ratePerSession: role === "teacher" && form.ratePerSession ? Number(form.ratePerSession) : undefined,
         linkedStudentId: role === "parent" ? form.linkedStudentId : undefined,
         relationship: role === "parent" ? form.relationship : undefined,
         assignedCourses: role === "student" ? form.assignedCourses : undefined,
         classLink: role === "student" ? form.classLink : undefined,
+        mentorAssignments: role === "student" ? form.mentorAssignments : undefined,
       });
       const generatedId = role === "student" ? (res?.student?.studentId || res?.studentId) : null;
       toast.success(`${role} created`, {
@@ -185,7 +196,9 @@ export const ManageUsersPage = ({ role, viewerRole, title, description }: Props)
         linkedStudentId: "",
         relationship: "Parent",
         assignedCourses: ["Physics", "Chemistry", "Biology", "Mathematics"],
-        classLink: ""
+        classLink: "",
+        ratePerSession: role === "teacher" ? "1000" : "",
+        mentorAssignments: [],
       });
     } catch (err: any) {
       toast.error(`Failed to create ${role}`, {
@@ -207,10 +220,12 @@ export const ManageUsersPage = ({ role, viewerRole, title, description }: Props)
         phone: editForm.phone,
         subject: role === "teacher" ? editForm.subject : undefined,
         assignedStudents: role === "teacher" ? editForm.assignedStudents : undefined,
+        ratePerSession: role === "teacher" && editForm.ratePerSession ? Number(editForm.ratePerSession) : undefined,
         linkedStudentId: role === "parent" ? editForm.linkedStudentId : undefined,
         relationship: role === "parent" ? editForm.relationship : undefined,
         assignedCourses: role === "student" ? editForm.assignedCourses : undefined,
         classLink: role === "student" ? editForm.classLink : undefined,
+        mentorAssignments: role === "student" ? editForm.mentorAssignments : undefined,
         ...(editForm.password ? { password: editForm.password } : {})
       });
       toast.success(`${role} updated`);
@@ -236,7 +251,9 @@ export const ManageUsersPage = ({ role, viewerRole, title, description }: Props)
       linkedStudentId: user.linkedStudentId || "",
       relationship: user.relationship || "Parent",
       assignedCourses: user.assignedCourses || ["Physics", "Chemistry", "Biology", "Mathematics"],
-      classLink: user.classLink || ""
+      classLink: user.classLink || "",
+      ratePerSession: user.ratePerSession !== undefined && user.ratePerSession !== null ? String(user.ratePerSession) : "1000",
+      mentorAssignments: user.mentorAssignments || [],
     });
     setEditOpen(true);
   };
@@ -376,6 +393,62 @@ export const ManageUsersPage = ({ role, viewerRole, title, description }: Props)
                           })}
                         </div>
                       </div>
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                            Assigned 1:1 Subject Mentors
+                          </Label>
+                          <span className="text-[11px] text-muted-foreground">
+                            1 mentor per subject
+                          </span>
+                        </div>
+                        <div className="space-y-2 p-3 border border-border rounded-xl bg-secondary/15">
+                          {["Physics", "Chemistry", "Biology", "Mathematics"].map((subj) => {
+                            const currentAssignment = form.mentorAssignments.find(
+                              (m) => m.subject.toLowerCase() === subj.toLowerCase()
+                            );
+                            const assignedTeacherId = currentAssignment?.teacherId || "none";
+                            const subjectTeachers = teachers.filter(
+                              (t) => (t.subject || "").toLowerCase() === subj.toLowerCase()
+                            );
+
+                            return (
+                              <div key={subj} className="flex items-center justify-between gap-3 text-xs">
+                                <span className="font-semibold text-foreground w-24 shrink-0">{subj}:</span>
+                                <Select
+                                  value={assignedTeacherId}
+                                  onValueChange={(val) => {
+                                    setForm((prev) => {
+                                      const filtered = prev.mentorAssignments.filter(
+                                        (m) => m.subject.toLowerCase() !== subj.toLowerCase()
+                                      );
+                                      if (val === "none") {
+                                        return { ...prev, mentorAssignments: filtered };
+                                      }
+                                      return {
+                                        ...prev,
+                                        mentorAssignments: [...filtered, { subject: subj, teacherId: val }],
+                                      };
+                                    });
+                                  }}
+                                >
+                                  <SelectTrigger className="h-8 text-xs flex-1">
+                                    <SelectValue placeholder="Select mentor..." />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="none">-- No Mentor Assigned --</SelectItem>
+                                    {subjectTeachers.map((t) => (
+                                      <SelectItem key={t.id} value={t.id}>
+                                        {t.full_name} ({t.email})
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
                       <div className="space-y-2">
                         <Label>Live Class Link</Label>
                         <Input 
@@ -447,6 +520,19 @@ export const ManageUsersPage = ({ role, viewerRole, title, description }: Props)
                             })
                           )}
                         </div>
+                      </div>
+
+                      <div>
+                        <Label>Session Rate Card (₹ / Session)</Label>
+                        <Input
+                          type="number"
+                          placeholder="e.g. 1000"
+                          value={form.ratePerSession}
+                          onChange={(e) => setForm({ ...form, ratePerSession: e.target.value })}
+                        />
+                        <p className="text-[10px] text-muted-foreground mt-1">
+                          Base per-session payout rate used in automated monthly payroll calculations.
+                        </p>
                       </div>
                     </div>
                   )}
@@ -558,6 +644,62 @@ export const ManageUsersPage = ({ role, viewerRole, title, description }: Props)
                       })}
                     </div>
                   </div>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                        Assigned 1:1 Subject Mentors
+                      </Label>
+                      <span className="text-[11px] text-muted-foreground">
+                        1 mentor per subject
+                      </span>
+                    </div>
+                    <div className="space-y-2 p-3 border border-border rounded-xl bg-secondary/15">
+                      {["Physics", "Chemistry", "Biology", "Mathematics"].map((subj) => {
+                        const currentAssignment = editForm.mentorAssignments.find(
+                          (m) => m.subject.toLowerCase() === subj.toLowerCase()
+                        );
+                        const assignedTeacherId = currentAssignment?.teacherId || "none";
+                        const subjectTeachers = teachers.filter(
+                          (t) => (t.subject || "").toLowerCase() === subj.toLowerCase()
+                        );
+
+                        return (
+                          <div key={subj} className="flex items-center justify-between gap-3 text-xs">
+                            <span className="font-semibold text-foreground w-24 shrink-0">{subj}:</span>
+                            <Select
+                              value={assignedTeacherId}
+                              onValueChange={(val) => {
+                                setEditForm((prev) => {
+                                  const filtered = prev.mentorAssignments.filter(
+                                    (m) => m.subject.toLowerCase() !== subj.toLowerCase()
+                                  );
+                                  if (val === "none") {
+                                    return { ...prev, mentorAssignments: filtered };
+                                  }
+                                  return {
+                                    ...prev,
+                                    mentorAssignments: [...filtered, { subject: subj, teacherId: val }],
+                                  };
+                                });
+                              }}
+                            >
+                              <SelectTrigger className="h-8 text-xs flex-1">
+                                <SelectValue placeholder="Select mentor..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="none">-- No Mentor Assigned --</SelectItem>
+                                {subjectTeachers.map((t) => (
+                                  <SelectItem key={t.id} value={t.id}>
+                                    {t.full_name} ({t.email})
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                   <div className="space-y-2">
                     <Label>Live Class Link</Label>
                     <Input 
@@ -629,6 +771,19 @@ export const ManageUsersPage = ({ role, viewerRole, title, description }: Props)
                         })
                       )}
                     </div>
+                  </div>
+
+                  <div>
+                    <Label>Session Rate Card (₹ / Session)</Label>
+                    <Input
+                      type="number"
+                      placeholder="e.g. 1000"
+                      value={editForm.ratePerSession}
+                      onChange={(e) => setEditForm({ ...editForm, ratePerSession: e.target.value })}
+                    />
+                    <p className="text-[10px] text-muted-foreground mt-1">
+                      Updating this rate applies to upcoming unfinalized payroll sessions.
+                    </p>
                   </div>
                 </div>
               )}
@@ -743,6 +898,7 @@ export const ManageUsersPage = ({ role, viewerRole, title, description }: Props)
                   {role === "teacher" && (
                     <>
                       <TableHead>Subject</TableHead>
+                      <TableHead>Rate Card</TableHead>
                       <TableHead>Assigned Students</TableHead>
                     </>
                   )}
@@ -809,12 +965,23 @@ export const ManageUsersPage = ({ role, viewerRole, title, description }: Props)
                             </div>
                           </TableCell>
                           <TableCell>
-                            <div className="flex flex-wrap gap-1 max-w-[200px]">
-                              {(row.assignedCourses || ["Physics", "Chemistry", "Biology", "Mathematics"]).map((c: string) => (
-                                <span key={c} className="inline-flex items-center rounded bg-secondary/80 px-1.5 py-0.5 text-[10px] font-semibold text-secondary-foreground">
-                                  {c}
-                                </span>
-                              ))}
+                            <div className="flex flex-wrap gap-1 max-w-[240px]">
+                              {(row.mentorAssignments && row.mentorAssignments.length > 0) ? (
+                                row.mentorAssignments.map((ma: any) => {
+                                  const t = teachers.find((tch) => tch.id === ma.teacherId);
+                                  return (
+                                    <span key={ma.subject} className="inline-flex items-center gap-1 rounded bg-orange-50 border border-orange-200 text-orange-700 px-1.5 py-0.5 text-[10px] font-semibold" title={t ? `${t.full_name} (${t.email})` : "Assigned Mentor"}>
+                                      {ma.subject}: {t?.full_name?.split(" ")[0] || "Mentor"}
+                                    </span>
+                                  );
+                                })
+                              ) : (
+                                (row.assignedCourses || ["Physics", "Chemistry", "Biology", "Mathematics"]).map((c: string) => (
+                                  <span key={c} className="inline-flex items-center rounded bg-secondary/80 px-1.5 py-0.5 text-[10px] font-semibold text-secondary-foreground">
+                                    {c}
+                                  </span>
+                                ))
+                              )}
                             </div>
                           </TableCell>
                         </>
@@ -826,6 +993,17 @@ export const ManageUsersPage = ({ role, viewerRole, title, description }: Props)
                               <GraduationCap className="h-3 w-3" />
                               {row.subject || "Physics"}
                             </span>
+                          </TableCell>
+                          <TableCell>
+                            {row.ratePerSession !== null && row.ratePerSession !== undefined ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-xs font-bold text-emerald-700">
+                                ₹{Number(row.ratePerSession).toLocaleString("en-IN")}/session
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 border border-amber-200 px-2.5 py-0.5 text-xs font-medium text-amber-700">
+                                Not configured
+                              </span>
+                            )}
                           </TableCell>
                           <TableCell>
                             {(!row.assignedStudents || row.assignedStudents.length === 0) ? (
@@ -857,12 +1035,10 @@ export const ManageUsersPage = ({ role, viewerRole, title, description }: Props)
                           </span>
                         </TableCell>
                       )}
-                      {role !== "student" && (
-                        <TableCell className="text-muted-foreground text-xs">
-                          {format(new Date(row.created_at), "MMM d, yyyy")}
-                        </TableCell>
-                      )}
-                      {viewerRole === "admin" && role !== "student" && (
+                      <TableCell className="text-muted-foreground text-xs">
+                        {format(new Date(row.created_at), "MMM d, yyyy")}
+                      </TableCell>
+                      {viewerRole === "admin" && (
                         <TableCell className="text-right pr-4">
                           <div className="flex items-center justify-end gap-1">
                             <Button variant="ghost" size="icon" onClick={() => handleOpenEdit(row)} className="hover:bg-primary-soft hover:text-primary">
@@ -928,6 +1104,26 @@ export const ManageUsersPage = ({ role, viewerRole, title, description }: Props)
                     </span>
                   ))}
                 </div>
+              </div>
+
+              <div className="border-b border-border/40 pb-4">
+                <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block mb-1.5">Assigned 1:1 Subject Mentors</span>
+                {(!selectedStudent.mentorAssignments || selectedStudent.mentorAssignments.length === 0) ? (
+                  <p className="text-xs text-muted-foreground italic">No mentors assigned yet.</p>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2 mt-1">
+                    {selectedStudent.mentorAssignments.map((ma: any) => {
+                      const t = teachers.find((tch) => tch.id === ma.teacherId);
+                      return (
+                        <div key={ma.subject} className="p-2 rounded-lg bg-orange-50/60 border border-orange-200/60 flex flex-col">
+                          <span className="text-[10px] uppercase font-bold text-orange-600">{ma.subject}</span>
+                          <span className="text-xs font-semibold text-foreground truncate">{t?.full_name || "Assigned Mentor"}</span>
+                          <span className="text-[10px] text-muted-foreground truncate">{t?.email || ""}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               {selectedStudent.classLink && (

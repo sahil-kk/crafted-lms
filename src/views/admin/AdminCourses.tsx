@@ -1,14 +1,16 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useMemo, useEffect } from "react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { 
   ArrowLeft, Plus, Trash2, BookOpen, FileText, 
-  ChevronRight, Upload, ClipboardList, Presentation
+  ChevronRight, Upload, ClipboardList, Presentation, Users
 } from "lucide-react";
 import { toast } from "sonner";
 import { AppRole, useAuth } from "@/hooks/useAuth";
@@ -25,17 +27,39 @@ const AdminCourses = ({ viewerRole = "admin" as AppRole }) => {
     addChapter, 
     deleteChapter, 
     uploadMaterial, 
-    deleteMaterial 
+    deleteMaterial,
+    ensureCourse
   } = useAppData();
 
-  const currentTeacher = users.find((u) => u.id === user?.id);
+  const currentTeacher = useMemo(() => {
+    return users.find((u) => u.id === user?.id);
+  }, [users, user?.id]);
+
   const teacherSubject = currentTeacher?.subject || "Physics";
+  const teacherAssignedStudentIds = currentTeacher?.assignedStudents || [];
+
+  const visibleStudents = useMemo(() => {
+    const allStudents = users.filter((u) => u.role === "student");
+    if (viewerRole === "teacher") {
+      return allStudents.filter((stu) => {
+        const isDirectlyAssigned = teacherAssignedStudentIds.includes(stu.id) || (stu.studentId && teacherAssignedStudentIds.includes(stu.studentId));
+        const isMentorAssigned = stu.mentorAssignments?.some(
+          (ma: any) => ma.teacherId === user?.id || ma.teacherId === currentTeacher?.id
+        );
+        return Boolean(isDirectlyAssigned || isMentorAssigned);
+      });
+    }
+    return allStudents;
+  }, [users, viewerRole, teacherAssignedStudentIds, user?.id, currentTeacher?.id]);
 
   // Navigation states
   const [activeClass, setActiveClass] = useState<string | null>(null);
   const [activeSubject, setActiveSubject] = useState<string | null>(null);
   const [activeChapterId, setActiveChapterId] = useState<string | null>(null);
   
+  // Selected student for 1:1 study material isolation
+  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
+
   // Content Tab: "notes" | "assignments"
   const [activeTab, setActiveTab] = useState<"notes" | "assignments">("notes");
 
@@ -47,21 +71,48 @@ const AdminCourses = ({ viewerRole = "admin" as AppRole }) => {
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Retrieve current course document matching class + subject
-  const activeCourse = courses.find(
-    (c) => c.classGrade === activeClass && c.subject === activeSubject
-  );
+  // Auto-ensure course when class & subject are selected
+  useEffect(() => {
+    if (activeClass && activeSubject) {
+      ensureCourse(activeClass, activeSubject, selectedStudentId).catch(console.error);
+    }
+  }, [activeClass, activeSubject, selectedStudentId, ensureCourse]);
+
+  // Retrieve current course document matching class + subject + studentId
+  const activeCourse = useMemo(() => {
+    if (!activeClass || !activeSubject) return undefined;
+    return courses.find((c) => {
+      const matchesClass = c.classGrade === activeClass;
+      const matchesSubj = c.subject?.toLowerCase().trim() === activeSubject?.toLowerCase().trim();
+      const matchesStu = selectedStudentId
+        ? (c.studentId === selectedStudentId || (c as any).studentId?._id === selectedStudentId)
+        : (!c.studentId || c.studentId === null);
+      return matchesClass && matchesSubj && matchesStu;
+    });
+  }, [courses, activeClass, activeSubject, selectedStudentId]);
 
   const activeChapter = activeCourse?.chapters?.find(
     (ch) => (ch._id || ch.id) === activeChapterId
   );
 
+  const selectedStudent = useMemo(() => {
+    return visibleStudents.find((s) => s.id === selectedStudentId);
+  }, [visibleStudents, selectedStudentId]);
+
   // Handle Chapter creation
   const handleAddChapter = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!activeCourse || !chapterTitle.trim()) return;
+    if (!chapterTitle.trim() || !activeClass || !activeSubject) return;
     try {
-      await addChapter(activeCourse.id, chapterTitle.trim());
+      let targetCourse = activeCourse;
+      if (!targetCourse) {
+        targetCourse = await ensureCourse(activeClass, activeSubject, selectedStudentId);
+      }
+      if (!targetCourse?.id) {
+        toast.error("Could not initialize course container");
+        return;
+      }
+      await addChapter(targetCourse.id, chapterTitle.trim());
       toast.success("Chapter added successfully");
       setChapterTitle("");
     } catch (err: any) {
@@ -194,12 +245,12 @@ const AdminCourses = ({ viewerRole = "admin" as AppRole }) => {
           <div className="grid sm:grid-cols-2 gap-5">
             {SUBJECTS.filter((sub) => {
               if (viewerRole === "teacher") {
-                return sub.toLowerCase().includes(teacherSubject.toLowerCase()) || teacherSubject.toLowerCase().includes(sub.toLowerCase());
+                return sub.toLowerCase().trim() === teacherSubject.toLowerCase().trim();
               }
               return true;
             }).map((sub) => {
               const matchingCourse = courses.find(
-                (c) => c.classGrade === activeClass && c.subject === sub
+                (c) => c.classGrade === activeClass && c.subject?.toLowerCase().trim() === sub.toLowerCase().trim() && !c.studentId
               );
               const chaptersCount = matchingCourse?.chapters?.length || 0;
 
@@ -232,12 +283,65 @@ const AdminCourses = ({ viewerRole = "admin" as AppRole }) => {
       {activeClass && activeSubject && !activeChapterId && (
         <div className="space-y-6">
           <div className="flex items-center gap-3">
-            <Button variant="outline" size="sm" onClick={() => setActiveSubject(null)} className="gap-1.5">
+            <Button variant="outline" size="sm" onClick={() => { setActiveSubject(null); setSelectedStudentId(null); }} className="gap-1.5">
               <ArrowLeft className="h-4 w-4" /> Back to Subjects
             </Button>
             <span className="text-sm font-semibold text-muted-foreground font-mono">
               Classes / {activeClass} / {activeSubject}
             </span>
+          </div>
+
+          {/* Student Context Selector */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-secondary/40 p-4 rounded-xl border border-border/60">
+            <div className="flex items-center gap-2.5">
+              <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                <Users className="h-4.5 w-4.5 text-primary" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Material Target</span>
+                  {selectedStudentId ? (
+                    <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/20">
+                      1:1 Student Specific
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-[10px] bg-muted text-muted-foreground border-border">
+                      General Curriculum
+                    </Badge>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {selectedStudentId
+                    ? "Viewing & uploading custom notes/assignments specifically for this student"
+                    : "Viewing class-wide base curriculum templates"}
+                </p>
+              </div>
+            </div>
+
+            <div className="w-full sm:w-72">
+              <Select
+                value={selectedStudentId || "general"}
+                onValueChange={(val) => {
+                  const newId = val === "general" ? null : val;
+                  setSelectedStudentId(newId);
+                  setActiveChapterId(null);
+                }}
+              >
+                <SelectTrigger className="h-9 text-xs bg-background">
+                  <SelectValue placeholder="Choose student..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="general">
+                    🌐 General Class Template (All Students)
+                  </SelectItem>
+                  {visibleStudents.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      👤 {s.full_name || s.email} {s.course ? `(${s.course})` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           <div className="grid md:grid-cols-12 gap-6">
@@ -326,7 +430,7 @@ const AdminCourses = ({ viewerRole = "admin" as AppRole }) => {
               <ArrowLeft className="h-4 w-4" /> Back to Chapters
             </Button>
             <span className="text-sm font-semibold text-muted-foreground font-mono truncate">
-              {activeClass} / {activeSubject} / {activeChapter.title}
+              {activeClass} / {activeSubject} {selectedStudent ? `(1:1: ${selectedStudent.full_name || selectedStudent.email})` : ""} / {activeChapter.title}
             </span>
           </div>
 

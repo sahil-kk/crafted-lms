@@ -9,6 +9,7 @@ import { Timetable } from "@/models/Timetable";
 import { Payment } from "@/models/Payment";
 import { ParentActivityControl } from "@/models/ParentActivityControl";
 import { ParentTeacherMessage } from "@/models/ParentTeacherMessage";
+import { getTeacherScope, assignMentorToStudent, unassignMentorFromStudent } from "@/lib/mentorSync";
 
 // GET single student (requires authenticated user)
 export async function GET(
@@ -21,6 +22,14 @@ export async function GET(
 
     await connectDB();
     const { id } = await params;
+
+    if (authResult.user.role === "teacher") {
+      const scope = await getTeacherScope(authResult.user.id);
+      if (!scope.assignedStudentIdStrings.includes(id)) {
+        return NextResponse.json({ message: "Access forbidden: student is not assigned to you" }, { status: 403 });
+      }
+    }
+
     const student = await Student.findById(id).select("-password");
     if (!student) {
       return NextResponse.json({ message: "Student not found" }, { status: 404 });
@@ -55,7 +64,7 @@ export async function PUT(
       return NextResponse.json({ message: "Access forbidden: insufficient permissions" }, { status: 403 });
     }
 
-    const { name, email, phone, course, status, batch, assignedCourses, classLink, password } = await req.json();
+    const { name, email, phone, course, status, batch, assignedCourses, classLink, password, mentorAssignments } = await req.json();
 
     if (email && email !== student.email) {
       const existingEmail = await Student.findOne({ email, _id: { $ne: id } });
@@ -67,12 +76,41 @@ export async function PUT(
 
     if (name) student.name = name;
     if (phone !== undefined) student.phone = phone;
-    // Only admin can change course/status/batch/assignedCourses
+    // Only admin can change course/status/batch/assignedCourses/mentorAssignments
     if (user.role === "admin") {
       if (course) student.course = course;
       if (status) student.status = status;
       if (batch) student.batch = batch;
       if (assignedCourses) student.assignedCourses = assignedCourses;
+
+      if (Array.isArray(mentorAssignments)) {
+        const currentAssignments = student.mentorAssignments || [];
+        const currentItems = currentAssignments.map((a: any) => ({
+          subject: a.subject,
+          teacherId: a.teacherId?.toString(),
+        }));
+
+        const newSubjectMap = new Map<string, string>();
+        for (const item of mentorAssignments) {
+          if (item.subject && item.teacherId) {
+            newSubjectMap.set(item.subject.toLowerCase(), item.teacherId.toString());
+            await assignMentorToStudent(student._id, item.teacherId, item.subject);
+          }
+        }
+
+        for (const curr of currentItems) {
+          if (!newSubjectMap.has(curr.subject.toLowerCase()) || newSubjectMap.get(curr.subject.toLowerCase()) !== curr.teacherId) {
+            if (curr.teacherId) {
+              await unassignMentorFromStudent(student._id, curr.teacherId, curr.subject);
+            }
+          }
+        }
+
+        const refreshed = await Student.findById(id);
+        if (refreshed) {
+          student.mentorAssignments = refreshed.mentorAssignments;
+        }
+      }
     }
     if (classLink !== undefined) student.classLink = classLink;
 
@@ -108,7 +146,11 @@ export async function DELETE(
       return NextResponse.json({ message: "Student not found" }, { status: 404 });
     }
 
-    // Cascade delete linked entities
+    // Cascade delete linked entities & teacher assignments
+    await User.updateMany(
+      { role: "teacher", assignedStudents: id },
+      { $pull: { assignedStudents: id } }
+    );
     await User.deleteMany({ role: "parent", linkedStudentId: id });
     await Result.deleteMany({ studentId: id });
     await Timetable.deleteMany({ studentId: id });

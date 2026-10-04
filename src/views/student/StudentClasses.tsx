@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { 
   ArrowLeft, BookOpen, FileText, ClipboardList, 
-  ChevronRight, Presentation, Video
+  ChevronRight, Presentation, Video, GraduationCap
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useAppData } from "@/hooks/useAppData";
@@ -16,7 +17,16 @@ const StudentCourses = () => {
   const { users, courses } = useAppData();
 
   // Retrieve current student profile details
-  const currentStudent = users.find((u) => u.id === user?.id || (user?.studentId && u.studentId === user.studentId) || (user?.email && u.email?.toLowerCase() === user.email.toLowerCase()));
+  const currentStudent = useMemo(() => {
+    return users.find(
+      (u) =>
+        u.id === user?.id ||
+        (user?.studentId && u.studentId === user.studentId) ||
+        (user?.email && u.email?.toLowerCase() === user.email.toLowerCase())
+    );
+  }, [users, user]);
+
+  const studentDbId = currentStudent?.id || user?.id;
   const classGrade = currentStudent?.course || "10th";
   const assignedSubjects = currentStudent?.assignedCourses || ["Physics", "Chemistry", "Biology", "Mathematics"];
 
@@ -27,10 +37,68 @@ const StudentCourses = () => {
 
   const classLink = currentStudent?.classLink || user?.classLink || "";
 
-  // Retrieve current course document matching class + subject
-  const activeCourse = courses.find(
-    (c) => c.classGrade === classGrade && c.subject === activeSubject
-  );
+  // Helper to look up assigned 1:1 mentor for a subject
+  const getSubjectMentor = (subjectName: string) => {
+    if (!currentStudent?.mentorAssignments) return null;
+    const assignment = currentStudent.mentorAssignments.find(
+      (ma: any) => ma.subject?.toLowerCase().trim() === subjectName.toLowerCase().trim()
+    );
+    if (!assignment) return null;
+    return users.find((u) => u.id === assignment.teacherId || (u as any)._id === assignment.teacherId) || null;
+  };
+
+  const currentMentor = activeSubject ? getSubjectMentor(activeSubject) : null;
+
+  // Retrieve course document (prioritizing 1:1 personalized course and merging general chapters)
+  const activeCourse = useMemo(() => {
+    if (!activeSubject) return undefined;
+    const personal = courses.find(
+      (c) =>
+        c.classGrade === classGrade &&
+        c.subject?.toLowerCase().trim() === activeSubject.toLowerCase().trim() &&
+        (c.studentId === studentDbId ||
+          (c as any).studentId?._id === studentDbId ||
+          (user?.studentId && c.studentId === user?.studentId))
+    );
+    const general = courses.find(
+      (c) =>
+        c.classGrade === classGrade &&
+        c.subject?.toLowerCase().trim() === activeSubject.toLowerCase().trim() &&
+        !c.studentId
+    );
+
+    if (personal && (!general || !general.chapters || general.chapters.length === 0)) {
+      return personal;
+    }
+    if (!personal && general) {
+      return general;
+    }
+    if (personal && general) {
+      const mergedChapters = [...(general.chapters || [])];
+      for (const pCh of personal.chapters || []) {
+        const existingIdx = mergedChapters.findIndex(
+          (gc: any) =>
+            (gc._id && pCh._id && gc._id === pCh._id) ||
+            gc.title?.toLowerCase().trim() === pCh.title?.toLowerCase().trim()
+        );
+        if (existingIdx >= 0) {
+          const gc = mergedChapters[existingIdx];
+          mergedChapters[existingIdx] = {
+            ...gc,
+            notes: [...(gc.notes || []), ...(pCh.notes || [])],
+            assignments: [...(gc.assignments || []), ...(pCh.assignments || [])],
+          };
+        } else {
+          mergedChapters.push(pCh);
+        }
+      }
+      return {
+        ...personal,
+        chapters: mergedChapters,
+      };
+    }
+    return personal || general;
+  }, [courses, activeSubject, classGrade, studentDbId, user?.studentId]);
 
   const activeChapter = activeCourse?.chapters?.find(
     (ch) => (ch._id || ch.id) === activeChapterId
@@ -89,10 +157,17 @@ const StudentCourses = () => {
           
           <div className="grid sm:grid-cols-2 gap-5">
             {assignedSubjects.map((sub) => {
-              const matchingCourse = courses.find(
-                (c) => c.classGrade === classGrade && c.subject === sub
+              const personalCourse = courses.find(
+                (c) =>
+                  c.classGrade === classGrade &&
+                  c.subject?.toLowerCase().trim() === sub.toLowerCase().trim() &&
+                  (c.studentId === studentDbId || (c as any).studentId?._id === studentDbId)
               );
-              const chaptersCount = matchingCourse?.chapters?.length || 0;
+              const generalCourse = courses.find(
+                (c) => c.classGrade === classGrade && c.subject?.toLowerCase().trim() === sub.toLowerCase().trim() && !c.studentId
+              );
+              const chaptersCount = (personalCourse?.chapters?.length || 0) + (generalCourse?.chapters?.length || 0);
+              const mentor = getSubjectMentor(sub);
 
               return (
                 <Card 
@@ -100,16 +175,28 @@ const StudentCourses = () => {
                   className="p-6 cursor-pointer border border-border/60 hover:border-[#f97316]/50 shadow-card hover:shadow-elevated transition-smooth flex flex-col justify-between"
                   onClick={() => setActiveSubject(sub)}
                 >
-                  <div className="flex items-center gap-3">
-                    <div className="h-12 w-12 rounded-xl bg-orange-50 flex items-center justify-center">
-                      <Presentation className="h-6 w-6 text-[#f97316]" />
+                  <div>
+                    <div className="flex items-center gap-3">
+                      <div className="h-12 w-12 rounded-xl bg-orange-50 flex items-center justify-center">
+                        <Presentation className="h-6 w-6 text-[#f97316]" />
+                      </div>
+                      <div>
+                        <h3 className="font-display font-bold text-lg text-foreground">{sub}</h3>
+                        <p className="text-xs text-muted-foreground mt-0.5">{chaptersCount} chapters available</p>
+                      </div>
                     </div>
-                    <div>
-                      <h3 className="font-display font-bold text-lg text-foreground">{sub}</h3>
-                      <p className="text-xs text-muted-foreground mt-0.5">{chaptersCount} chapters available</p>
-                    </div>
+
+                    {mentor && (
+                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-3 bg-orange-500/5 px-2.5 py-1.5 rounded-lg border border-orange-500/10">
+                        <GraduationCap className="h-3.5 w-3.5 text-[#f97316] shrink-0" />
+                        <span className="truncate">
+                          Mentor: <strong className="text-foreground">{mentor.full_name || mentor.email}</strong>
+                        </span>
+                      </div>
+                    )}
                   </div>
-                  <div className="flex items-center gap-1.5 text-xs text-[#f97316] font-semibold mt-6 ml-auto">
+
+                  <div className="flex items-center gap-1.5 text-xs text-[#f97316] font-semibold mt-4 ml-auto">
                     View Course <ChevronRight className="h-3.5 w-3.5" />
                   </div>
                 </Card>
@@ -135,6 +222,33 @@ const StudentCourses = () => {
             <h2 className="font-display text-2xl font-bold">{activeSubject}</h2>
             <p className="text-muted-foreground mt-1">Select a chapter to access files</p>
           </div>
+
+          {currentMentor && (
+            <div className="flex items-center justify-between p-4 bg-orange-500/5 border border-orange-500/20 rounded-xl max-w-3xl">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-xl bg-orange-500/10 flex items-center justify-center shrink-0">
+                  <GraduationCap className="h-5 w-5 text-[#f97316]" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold uppercase tracking-wider text-[#f97316]">1:1 Subject Mentor</span>
+                    <Badge variant="outline" className="text-[10px] bg-background border-orange-500/30 text-foreground">
+                      {activeSubject}
+                    </Badge>
+                  </div>
+                  <h4 className="font-display font-bold text-base text-foreground mt-0.5">
+                    {currentMentor.full_name || currentMentor.email}
+                  </h4>
+                </div>
+              </div>
+              {currentMentor.phone && (
+                <div className="text-right hidden sm:block">
+                  <span className="text-[11px] text-muted-foreground block">Mentor Phone</span>
+                  <span className="text-xs font-semibold font-mono text-foreground">{currentMentor.phone}</span>
+                </div>
+              )}
+            </div>
+          )}
 
           <Card className="p-6 sm:p-8 shadow-card border-border/60 bg-gradient-to-br from-white via-orange-500/[0.02] to-orange-500/[0.05] max-w-3xl">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">

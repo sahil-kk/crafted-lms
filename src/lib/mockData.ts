@@ -17,6 +17,8 @@ export interface MockUser {
   relationship?: string;
   assignedCourses?: string[];
   classLink?: string;
+  ratePerSession?: number | null;
+  mentorAssignments?: { subject: string; teacherId: string }[];
 }
 
 export interface NoteObj {
@@ -50,6 +52,7 @@ export interface Course {
   description?: string;
   classGrade?: string;
   subject?: string;
+  studentId?: string | null;
   chapters?: ChapterObj[];
   created_at?: string;
 }

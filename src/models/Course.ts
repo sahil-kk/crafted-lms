@@ -21,6 +21,7 @@ export interface IChapter {
 export interface ICourse extends Document {
   classGrade: string; // "8th", "9th", "10th", "11th", "12th"
   subject: string;    // "Physics", "Chemistry", "Biology", "Mathematics"
+  studentId?: mongoose.Types.ObjectId | null;
   chapters: IChapter[];
   createdAt: Date;
   updatedAt: Date;
@@ -30,6 +31,7 @@ const CourseSchema = new Schema<ICourse>(
   {
     classGrade: { type: String, required: true },
     subject: { type: String, required: true },
+    studentId: { type: Schema.Types.ObjectId, ref: "Student", default: null },
     chapters: [
       {
         title: { type: String, required: true },

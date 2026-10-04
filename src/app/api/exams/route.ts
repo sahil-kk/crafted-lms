@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/db";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, escapeRegex } from "@/lib/auth";
 import { Exam } from "@/models/Exam";
 import { uploadToR2 } from "@/lib/r2";
+import { getTeacherScope } from "@/lib/mentorSync";
 
 // GET all exams
 export async function GET(req: NextRequest) {
@@ -11,7 +12,36 @@ export async function GET(req: NextRequest) {
     if (authResult.error) return authResult.error;
 
     await connectDB();
-    const exams = await Exam.find().sort({ createdAt: -1 });
+    const { user } = authResult;
+
+    let query: any = {};
+
+    if (user.role === "teacher") {
+      const scope = await getTeacherScope(user.id);
+      const subjectRegex = new RegExp(`^${escapeRegex(scope.subject)}$`, "i");
+
+      query = {
+        subject: { $regex: subjectRegex },
+        $or: [
+          { studentId: null },
+          { studentId: { $exists: false } },
+          { studentId: "" },
+          { studentId: { $in: scope.allStudentIdentifiers } },
+        ],
+      };
+    } else if (user.role === "student") {
+      const studentIds = [user.id, user.studentId].filter((id): id is string => Boolean(id));
+      query = {
+        $or: [
+          { studentId: null },
+          { studentId: { $exists: false } },
+          { studentId: "" },
+          { studentId: { $in: studentIds } },
+        ],
+      };
+    }
+
+    const exams = await Exam.find(query).sort({ createdAt: -1 });
     return NextResponse.json(exams);
   } catch (err: any) {
     return NextResponse.json({ message: err.message || "Server error" }, { status: 500 });
@@ -71,6 +101,17 @@ export async function POST(req: NextRequest) {
 
     if (!title) {
       return NextResponse.json({ message: "Exam title is required" }, { status: 400 });
+    }
+
+    if (authResult.user.role === "teacher") {
+      const scope = await getTeacherScope(authResult.user.id);
+      subject = scope.subject || "Physics";
+      if (studentId && !scope.allStudentIdentifiers.includes(studentId)) {
+        return NextResponse.json(
+          { message: "Access forbidden: you cannot assign exams to students outside your assigned mentorship" },
+          { status: 403 }
+        );
+      }
     }
 
     const newExam = new Exam({

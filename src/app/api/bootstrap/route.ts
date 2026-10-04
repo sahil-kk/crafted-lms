@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/db";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, escapeRegex } from "@/lib/auth";
+import { getTeacherScope, syncMentorAssignments } from "@/lib/mentorSync";
 import { Student } from "@/models/Student";
 import { User } from "@/models/User";
 import { Course } from "@/models/Course";
@@ -10,6 +11,7 @@ import { RecordedClass } from "@/models/RecordedClass";
 import { Result } from "@/models/Result";
 import { Timetable } from "@/models/Timetable";
 import { Payment } from "@/models/Payment";
+import { RateCard } from "@/models/RateCard";
 import { serverCache } from "@/lib/cache";
 
 export async function GET(req: NextRequest) {
@@ -61,19 +63,63 @@ export async function GET(req: NextRequest) {
       paymentsPromise = Promise.resolve([]);
     }
 
-    const [students, teachers, parents, courses, announcements, exams, classes, results, timetables, payments] =
+    await syncMentorAssignments();
+
+    let studentQuery: any = {};
+    let examQuery: any = {};
+    let resultQuery: any = {};
+    let courseQuery: any = {};
+
+    if (user.role === "teacher") {
+      const scope = await getTeacherScope(user.id);
+      const subjectRegex = new RegExp(`^${escapeRegex(scope.subject)}$`, "i");
+
+      studentQuery = { _id: { $in: scope.assignedStudentObjectIds } };
+      examQuery = {
+        subject: { $regex: subjectRegex },
+        $or: [
+          { studentId: null },
+          { studentId: { $exists: false } },
+          { studentId: "" },
+          { studentId: { $in: scope.allStudentIdentifiers } },
+        ],
+      };
+      resultQuery = scope.allStudentIdentifiers.length > 0 ? {
+        subject: { $regex: subjectRegex },
+        studentId: { $in: scope.allStudentIdentifiers },
+      } : { _id: null }; // empty if no students assigned
+      courseQuery = {
+        subject: { $regex: subjectRegex },
+        $or: [
+          { studentId: null },
+          { studentId: { $in: scope.assignedStudentObjectIds } },
+        ],
+      };
+    } else if (user.role === "student") {
+      const studentIds = [user.id, user.studentId].filter((id): id is string => Boolean(id));
+      resultQuery = { studentId: { $in: studentIds } };
+    }
+
+    const [students, rawTeachers, parents, courses, announcements, exams, classes, results, timetables, payments, activeRateCards] =
       await Promise.all([
-        Student.find().sort({ createdAt: -1 }).select("-password").lean(),
+        Student.find(studentQuery).sort({ createdAt: -1 }).select("-password").lean(),
         User.find({ role: "teacher" }).select("-password").sort({ createdAt: -1 }).lean(),
         User.find({ role: "parent" }).populate("linkedStudentId").select("-password").sort({ createdAt: -1 }).lean(),
-        Course.find().sort({ classGrade: 1, subject: 1 }).lean(),
+        Course.find(courseQuery).sort({ classGrade: 1, subject: 1 }).lean(),
         Announcement.find().sort({ createdAt: -1 }).lean(),
-        Exam.find().sort({ createdAt: -1 }).lean(),
+        Exam.find(examQuery).sort({ createdAt: -1 }).lean(),
         RecordedClass.find().populate("course_id").sort({ createdAt: -1 }).lean(),
-        Result.find().sort({ date: -1 }).lean(),
+        Result.find(resultQuery).sort({ date: -1 }).lean(),
         Timetable.find().lean(),
         paymentsPromise,
+        RateCard.find({ effectiveTo: null }).lean(),
       ]);
+
+    const rateMap = new Map(activeRateCards.map((rc: any) => [rc.teacherId.toString(), rc.ratePerSession]));
+    const teachers = rawTeachers.map((t: any) => ({
+      ...t,
+      ratePerSession: rateMap.get(t._id.toString()) ?? null,
+    }));
 
     const responsePayload = {
       students,

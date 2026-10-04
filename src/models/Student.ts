@@ -1,5 +1,10 @@
 import mongoose, { Schema, Document, Model } from "mongoose";
 
+export interface IMentorAssignment {
+  subject: string;
+  teacherId: mongoose.Types.ObjectId;
+}
+
 export interface IStudent extends Document {
   studentId: string;
   password: string;
@@ -9,6 +14,7 @@ export interface IStudent extends Document {
   course: string; // Class / Grade: 8th - 12th
   batch?: string;
   assignedCourses: string[];
+  mentorAssignments?: IMentorAssignment[];
   status: "active" | "inactive";
   profilePhoto?: string;
   classLink?: string;
@@ -26,6 +32,12 @@ const StudentSchema = new Schema<IStudent>(
     course: { type: String, required: true },
     batch: { type: String, default: "Batch 1" },
     assignedCourses: { type: [String], default: ["Physics", "Chemistry", "Biology", "Mathematics"] },
+    mentorAssignments: [
+      {
+        subject: { type: String, required: true },
+        teacherId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+      },
+    ],
     status: { type: String, enum: ["active", "inactive"], default: "active" },
     profilePhoto: { type: String, default: "" },
     classLink: { type: String, default: "" },

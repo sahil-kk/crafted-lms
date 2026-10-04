@@ -36,6 +36,8 @@ interface CreateUserInput {
   assignedCourses?: string[];
   assignedStudents?: string[];
   classLink?: string;
+  ratePerSession?: number;
+  mentorAssignments?: { subject: string; teacherId: string }[];
 }
 
 interface UpdateUserInput {
@@ -54,6 +56,8 @@ interface UpdateUserInput {
   profilePhoto?: string;
   assignedCourses?: string[];
   classLink?: string;
+  ratePerSession?: number;
+  mentorAssignments?: { subject: string; teacherId: string }[];
 }
 
 interface CreateCourseInput {
@@ -107,6 +111,7 @@ interface AppDataContextValue extends MockAppState {
   createCourse: (input: CreateCourseInput) => void;
   deleteCourse: (id: string) => void;
   updateCourse: (id: string, input: Partial<CreateCourseInput>) => void;
+  ensureCourse: (classGrade: string, subject: string, studentId?: string | null) => Promise<any>;
   addChapter: (courseId: string, title: string) => Promise<any>;
   deleteChapter: (courseId: string, chapterId: string) => Promise<any>;
   uploadMaterial: (courseId: string, chapterId: string, payload: FormData) => Promise<any>;
@@ -208,6 +213,10 @@ function formatBootstrap(bootstrap: any) {
       profilePhoto: u.profilePhoto || "",
       classLink: u.classLink || "",
       assignedCourses: u.assignedCourses || ["Physics", "Chemistry", "Biology", "Mathematics"],
+      mentorAssignments: (u.mentorAssignments || []).map((ma: any) => ({
+        subject: ma.subject,
+        teacherId: typeof ma.teacherId === "object" ? ma.teacherId?._id || ma.teacherId?.id || ma.teacherId : String(ma.teacherId),
+      })),
     })),
     ...teachers.map((u: any) => ({
       id: u._id,
@@ -218,6 +227,7 @@ function formatBootstrap(bootstrap: any) {
       phone: u.phone || "",
       subject: u.subject || "Physics",
       assignedStudents: (u.assignedStudents || []).map((s: any) => (typeof s === "object" ? s._id || s.id : s)),
+      ratePerSession: u.ratePerSession ?? null,
     })),
     ...parents.map((u: any) => ({
       id: u._id || u.id,
@@ -239,6 +249,7 @@ function formatBootstrap(bootstrap: any) {
           _id: c._id,
           classGrade: c.classGrade,
           subject: c.subject,
+          studentId: typeof c.studentId === "object" ? c.studentId?._id || c.studentId?.id || c.studentId : c.studentId || null,
           chapters: c.chapters || [],
           created_at: c.createdAt || new Date().toISOString(),
         }))
@@ -408,11 +419,13 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
           body.phone = input.phone || "";
           body.classLink = input.classLink || "";
           body.assignedCourses = input.assignedCourses || ["Physics", "Chemistry", "Biology", "Mathematics"];
+          if (input.mentorAssignments) body.mentorAssignments = input.mentorAssignments;
         } else {
           body.username = input.email;
           body.phone = input.phone || "";
           body.subject = input.subject || "Physics";
           if (input.assignedStudents) body.assignedStudents = input.assignedStudents;
+          if (input.ratePerSession !== undefined) body.ratePerSession = input.ratePerSession;
         }
         if (input.role === "parent") {
           body.username = input.email;
@@ -423,6 +436,7 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
         const res = await apiClient<any>(endpoint, { method: "POST", body: JSON.stringify(body) });
         
         const actualId = (res.student?._id || res.teacher?._id || res._id || res.id) || createId("user");
+        const resolvedRate = res.teacher?.ratePerSession !== undefined ? res.teacher.ratePerSession : (input.ratePerSession ?? null);
         
         setState((prev) => ({
           ...prev,
@@ -439,10 +453,12 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
               phone: input.phone || "",
               subject: input.subject || (input.role === "teacher" ? "Physics" : undefined),
               assignedStudents: input.assignedStudents || [],
+              ratePerSession: resolvedRate,
               linkedStudentId: input.linkedStudentId,
               relationship: input.relationship,
               classLink: res.student?.classLink || input.classLink || "",
               assignedCourses: res.student?.assignedCourses || input.assignedCourses || ["Physics", "Chemistry", "Biology", "Mathematics"],
+              mentorAssignments: input.mentorAssignments || [],
             },
             ...prev.users,
           ],
@@ -478,14 +494,19 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
         if (input.batch !== undefined) body.batch = input.batch;
         if (input.subject !== undefined) body.subject = input.subject;
         if (input.assignedStudents !== undefined) body.assignedStudents = input.assignedStudents;
+        if (input.ratePerSession !== undefined) body.ratePerSession = input.ratePerSession;
         if (input.profilePhoto !== undefined) body.profilePhoto = input.profilePhoto;
         if (input.linkedStudentId !== undefined) body.studentId = input.linkedStudentId;
         if (input.relationship !== undefined) body.relationship = input.relationship;
         if (input.classLink !== undefined) body.classLink = input.classLink;
         if (input.role === "parent") body.username = input.email;
         if (input.assignedCourses !== undefined) body.assignedCourses = input.assignedCourses;
+        if (input.mentorAssignments !== undefined) body.mentorAssignments = input.mentorAssignments;
         
-        await apiClient<any>(endpoint, { method: "PATCH", body: JSON.stringify(body) });
+        const updateRes = await apiClient<any>(endpoint, { method: "PATCH", body: JSON.stringify(body) });
+        const updatedRate = updateRes?.teacher?.ratePerSession !== undefined 
+          ? updateRes.teacher.ratePerSession 
+          : input.ratePerSession;
         
         setState((prev) => ({
           ...prev,
@@ -498,15 +519,48 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
               batch: input.batch !== undefined ? input.batch : u.batch,
               subject: input.subject !== undefined ? input.subject : u.subject,
               assignedStudents: input.assignedStudents !== undefined ? input.assignedStudents : u.assignedStudents,
+              ratePerSession: updatedRate !== undefined ? updatedRate : u.ratePerSession,
               profilePhoto: input.profilePhoto !== undefined ? input.profilePhoto : u.profilePhoto,
               linkedStudentId: input.linkedStudentId !== undefined ? input.linkedStudentId : u.linkedStudentId,
               relationship: input.relationship !== undefined ? input.relationship : u.relationship,
               classLink: input.classLink !== undefined ? input.classLink : u.classLink,
               assignedCourses: input.assignedCourses !== undefined ? input.assignedCourses : u.assignedCourses,
+              mentorAssignments: input.mentorAssignments !== undefined ? input.mentorAssignments : u.mentorAssignments,
             } : u)
         }));
       } catch (err) {
         console.error(err);
+        throw err;
+      }
+    },
+    ensureCourse: async (classGrade, subject, studentId) => {
+      try {
+        const res = await apiClient<any>("/courses", {
+          method: "POST",
+          body: JSON.stringify({ classGrade, subject, studentId: studentId || null }),
+        });
+        const cDoc = res.course || res;
+        const formatted = {
+          id: cDoc._id || cDoc.id,
+          _id: cDoc._id || cDoc.id,
+          classGrade: cDoc.classGrade,
+          subject: cDoc.subject,
+          studentId: cDoc.studentId || null,
+          chapters: cDoc.chapters || [],
+          created_at: cDoc.createdAt || new Date().toISOString(),
+        };
+        setState((prev) => {
+          const exists = prev.courses.some((c) => c.id === formatted.id);
+          return {
+            ...prev,
+            courses: exists
+              ? prev.courses.map((c) => (c.id === formatted.id ? { ...c, ...formatted } : c))
+              : [formatted, ...prev.courses],
+          };
+        });
+        return formatted;
+      } catch (err) {
+        console.error("ensureCourse failed", err);
         throw err;
       }
     },

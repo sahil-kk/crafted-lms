@@ -17,7 +17,7 @@ export interface IScheduledSlot extends Document {
 const ScheduledSlotSchema = new Schema<IScheduledSlot>(
   {
     teacherId: { type: Schema.Types.ObjectId, ref: "User", required: true },
-    studentId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    studentId: { type: Schema.Types.ObjectId, ref: "Student", required: true },
     subject: { type: String, required: true },
     dayOfWeek: {
       type: String,
