@@ -220,7 +220,7 @@ const ReceiptContent = ({
           </div>
           <div>
             <span className="text-[9px] font-semibold text-stone-400 uppercase block leading-none">Email</span>
-            <span className="font-medium text-stone-800 text-[11.5px]">support@craftedlearninghub.com</span>
+            <span className="font-medium text-stone-800 text-[11.5px]">accounts@craftedlearn.com</span>
           </div>
         </div>
 
@@ -230,7 +230,7 @@ const ReceiptContent = ({
           </div>
           <div>
             <span className="text-[9px] font-semibold text-stone-400 uppercase block leading-none">Phone</span>
-            <span className="font-medium text-stone-800 text-[11.5px]">+91 98765 43210</span>
+            <span className="font-medium text-stone-800 text-[11.5px]">+91 7356 324 680</span>
           </div>
         </div>
 
@@ -240,7 +240,7 @@ const ReceiptContent = ({
           </div>
           <div>
             <span className="text-[9px] font-semibold text-stone-400 uppercase block leading-none">Website</span>
-            <span className="font-medium text-stone-800 text-[11.5px]">www.craftedlearninghub.com</span>
+            <span className="font-medium text-stone-800 text-[11.5px]">craftedlearn.com</span>
           </div>
         </div>
       </div>
