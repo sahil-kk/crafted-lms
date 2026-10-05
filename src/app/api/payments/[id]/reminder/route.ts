@@ -8,6 +8,8 @@ import { Announcement } from "@/models/Announcement";
 import { serverCache } from "@/lib/cache";
 import { sendPaymentReminderEmail } from "@/lib/mailer";
 
+import mongoose from "mongoose";
+
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -19,7 +21,14 @@ export async function POST(
     await connectDB();
     const { id } = await params;
 
-    const payment = await Payment.findById(id);
+    let payment = null;
+    if (mongoose.isValidObjectId(id)) {
+      payment = await Payment.findById(id);
+    }
+    if (!payment) {
+      payment = await Payment.findOne({ $or: [{ _id: id }, { id: id }] }).catch(() => null);
+    }
+
     if (!payment) {
       return NextResponse.json({ message: "Payment not found" }, { status: 404 });
     }

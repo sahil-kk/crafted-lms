@@ -6,6 +6,8 @@ import { Student } from "@/models/Student";
 import { serverCache } from "@/lib/cache";
 import { sendPaymentNotificationToAccounts } from "@/lib/mailer";
 
+import mongoose from "mongoose";
+
 // PUT update payment (requires admin)
 export async function PUT(
   req: NextRequest,
@@ -19,7 +21,14 @@ export async function PUT(
     const { id } = await params;
     const { status, paidAt, amount, dueDate, paymentMethod, description, receiptNumber } = await req.json();
 
-    const payment = await Payment.findById(id);
+    let payment = null;
+    if (mongoose.isValidObjectId(id)) {
+      payment = await Payment.findById(id);
+    }
+    if (!payment) {
+      payment = await Payment.findOne({ $or: [{ _id: id }, { id: id }] }).catch(() => null);
+    }
+
     if (!payment) {
       return NextResponse.json({ message: "Payment not found" }, { status: 404 });
     }
@@ -103,7 +112,13 @@ export async function DELETE(
 
     await connectDB();
     const { id } = await params;
-    const deleted = await Payment.findByIdAndDelete(id);
+    let deleted = null;
+    if (mongoose.isValidObjectId(id)) {
+      deleted = await Payment.findByIdAndDelete(id);
+    }
+    if (!deleted) {
+      deleted = await Payment.findOneAndDelete({ $or: [{ _id: id }, { id: id }] }).catch(() => null);
+    }
     if (!deleted) {
       return NextResponse.json({ message: "Payment not found" }, { status: 404 });
     }
