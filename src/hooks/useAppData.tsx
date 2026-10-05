@@ -16,7 +16,7 @@ import {
 } from "@/lib/mockData";
 export interface TimetableObj { id?: string; _id?: string; day: string; time: string; subject: string; teacher: string; studentId?: string; batch?: string; }
 export interface ResultObj { id?: string; _id?: string; studentId: string; subject: string; examType: string; score: number; maxScore: number; grade?: string; trend?: string; date?: string; }
-export interface PaymentObj { id?: string; _id?: string; studentId: string; studentName: string; amount: number; currency?: string; status: "paid" | "pending" | "overdue"; dueDate: string; paidAt?: string; classGrade?: string; batch?: string; razorpayOrderId?: string; razorpayPaymentId?: string; razorpaySignature?: string; paymentMethod?: string; receiptNumber?: string; created_at?: string; }
+export interface PaymentObj { id?: string; _id?: string; studentId: string; studentName: string; amount: number; currency?: string; status: "paid" | "pending" | "overdue"; dueDate: string; paidAt?: string; classGrade?: string; batch?: string; description?: string; reminderSentAt?: string; reminderCount?: number; razorpayOrderId?: string; razorpayPaymentId?: string; razorpaySignature?: string; paymentMethod?: string; receiptNumber?: string; created_at?: string; }
 import { apiClient } from "@/lib/apiClient";
 import { useAuth } from "./useAuth";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -141,7 +141,8 @@ interface AppDataContextValue extends MockAppState {
   payments: PaymentObj[];
   createPayment: (input: PaymentObj) => void;
   deletePayment: (id: string) => void;
-  updatePayment: (id: string, input: Partial<PaymentObj>) => void;
+  updatePayment: (id: string, input: Partial<PaymentObj>) => Promise<void>;
+  updateLocalPayment: (updated: PaymentObj) => void;
   refreshData: () => Promise<void>;
 }
 
@@ -300,7 +301,12 @@ function formatBootstrap(bootstrap: any) {
           }))
         )
       : [],
-    payments: loadedPayments || [],
+    payments: (loadedPayments || []).map((p: any) => ({
+      ...p,
+      id: p._id?.toString() || p.id,
+      _id: p._id?.toString() || p.id,
+      description: p.description || "Tuition & Course Academic Fee",
+    })),
   };
 }
 
@@ -1055,38 +1061,63 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
           method: "POST",
           body: JSON.stringify(input),
         });
-        setPayments((prev) => [res, ...prev]);
+        const normalized = {
+          ...res,
+          id: res._id?.toString() || res.id,
+          _id: res._id?.toString() || res.id,
+          description: res.description || input.description || "Tuition & Course Academic Fee",
+        };
+        setPayments((prev) => [normalized, ...prev]);
+        queryClient.invalidateQueries({ queryKey: ["bootstrap"] });
       } catch (e) {
-        setPayments((prev) => [{ ...input, id: createId("pay") }, ...prev]);
+        setPayments((prev) => [{ ...input, id: createId("pay"), _id: createId("pay") }, ...prev]);
       }
     },
     deletePayment: async (id) => {
       try {
         await apiClient(`/payments/${id}`, { method: "DELETE" });
         setPayments((prev) => prev.filter((p) => p._id !== id && p.id !== id));
+        queryClient.invalidateQueries({ queryKey: ["bootstrap"] });
       } catch (e) {
         setPayments((prev) => prev.filter((p) => p._id !== id && p.id !== id));
       }
     },
     updatePayment: async (id, input) => {
+      // Optimistic instant UI update
+      setPayments((prev) =>
+        prev.map((p) => (p._id === id || p.id === id ? { ...p, ...input } : p))
+      );
       try {
         const res = await apiClient<any>(`/payments/${id}`, {
           method: "PUT",
           body: JSON.stringify(input),
         });
+        const normalized = {
+          ...res,
+          id: res._id?.toString() || res.id || id,
+          _id: res._id?.toString() || res.id || id,
+        };
         setPayments((prev) =>
-          prev.map((p) => (p._id === id || p.id === id ? { ...p, ...res } : p))
+          prev.map((p) => (p._id === id || p.id === id ? { ...p, ...normalized } : p))
         );
+        queryClient.invalidateQueries({ queryKey: ["bootstrap"] });
       } catch (e) {
-        setPayments((prev) =>
-          prev.map((p) => (p._id === id || p.id === id ? { ...p, ...input } : p))
-        );
+        queryClient.invalidateQueries({ queryKey: ["bootstrap"] });
+        throw e;
       }
     },
+    updateLocalPayment: (updated: PaymentObj) => {
+      const id = updated._id || updated.id;
+      setPayments((prev) =>
+        prev.map((p) => (p._id === id || p.id === id ? { ...p, ...updated } : p))
+      );
+      queryClient.invalidateQueries({ queryKey: ["bootstrap"] });
+    },
     refreshData: async () => {
+      queryClient.invalidateQueries({ queryKey: ["bootstrap"] });
       await refetch();
     },
-  }), [state, payments, isLoading, refetch]);
+  }), [state, payments, isLoading, refetch, queryClient]);
 
   return <AppDataContext.Provider value={value}>{children}</AppDataContext.Provider>;
 };

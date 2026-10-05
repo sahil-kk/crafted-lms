@@ -25,6 +25,19 @@ interface PaymentReceiptModalProps {
   onOpenChange: (open: boolean) => void;
 }
 
+const formatClassOnly = (grade?: string): string => {
+  if (!grade) return "Class 10";
+  const trimmed = grade.trim();
+  if (/^class\s*\d+/i.test(trimmed)) {
+    return trimmed.replace(/^class\s*/i, "Class ");
+  }
+  const match = trimmed.match(/\d+/);
+  if (match) {
+    return `Class ${match[0]}`;
+  }
+  return trimmed;
+};
+
 // Reusable Receipt Content Component for both Screen Modal and Print Portal
 const ReceiptContent = ({
   payment,
@@ -100,15 +113,15 @@ const ReceiptContent = ({
           </div>
         </div>
 
-        {/* Class & Batch */}
+        {/* Class */}
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-full bg-[#FFEDD5] flex items-center justify-center text-[#EA580C] shrink-0 border border-[#FED7AA]">
             <BookOpen className="w-4.5 h-4.5" />
           </div>
           <div className="min-w-0">
-            <p className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">CLASS & BATCH</p>
-            <p className="text-xs sm:text-sm font-semibold text-stone-800 mt-0.5">
-              {payment.classGrade || "10th"} &nbsp;•&nbsp; {payment.batch || "Batch 1"}
+            <p className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">CLASS</p>
+            <p className="text-xs sm:text-sm font-bold text-stone-800 mt-0.5">
+              {formatClassOnly(payment.classGrade)}
             </p>
           </div>
         </div>
@@ -140,10 +153,10 @@ const ReceiptContent = ({
               <td className="py-3 px-4 text-center text-stone-400 font-medium">1</td>
               <td className="py-3 px-4 text-left">
                 <p className="font-semibold text-stone-900 text-sm">
-                  Tuition &amp; Course Academic Fee
+                  {payment.description || "Tuition & Course Academic Fee"}
                 </p>
-                <p className="text-xs text-stone-500 mt-0.5">
-                  Academic Class {payment.classGrade || "10th"} {payment.batch ? `• ${payment.batch}` : ""}
+                <p className="text-xs text-stone-500 mt-0.5 font-medium">
+                  {formatClassOnly(payment.classGrade)}
                 </p>
               </td>
               <td className="py-3 px-5 text-right font-semibold text-stone-900 text-sm sm:text-base">

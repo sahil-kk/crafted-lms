@@ -21,7 +21,16 @@ export async function GET(req: NextRequest) {
       query = {}; // Admin sees all
     } else if (user.role === "student") {
       const studentIds: string[] = [user.id, user.studentId].filter((id): id is string => Boolean(id));
-      query = { studentId: { $in: studentIds } };
+      try {
+        const studentDoc = await Student.findOne({
+          $or: [{ _id: user.id }, { studentId: user.studentId || user.id }],
+        }).lean();
+        if (studentDoc) {
+          if (studentDoc._id) studentIds.push(studentDoc._id.toString());
+          if (studentDoc.studentId) studentIds.push(studentDoc.studentId);
+        }
+      } catch {}
+      query = { studentId: { $in: Array.from(new Set(studentIds)) } };
     } else if (user.role === "parent") {
       const studentIds: string[] = [];
       if (user.studentId) studentIds.push(String(user.studentId));
@@ -53,7 +62,7 @@ export async function POST(req: NextRequest) {
     if (authResult.error) return authResult.error;
 
     await connectDB();
-    const { studentId, studentName, amount, status, dueDate, paidAt, classGrade, batch } = await req.json();
+    const { studentId, studentName, amount, status, dueDate, paidAt, classGrade, batch, description } = await req.json();
 
     if (!studentId || !studentName || amount === undefined || !dueDate) {
       return NextResponse.json({ message: "Student ID, student name, amount, and due date are required" }, { status: 400 });
@@ -62,16 +71,24 @@ export async function POST(req: NextRequest) {
     const newPayment = new Payment({
       studentId,
       studentName,
-      amount,
+      amount: Number(amount),
       status: status || "pending",
       dueDate: new Date(dueDate),
       paidAt: paidAt ? new Date(paidAt) : undefined,
       classGrade: classGrade || "",
       batch: batch || "",
+      description: description || "Tuition & Course Academic Fee",
     });
     await newPayment.save();
     serverCache.invalidateTags(["bootstrap"]);
-    return NextResponse.json(newPayment, { status: 201 });
+    serverCache.clear();
+
+    const returnObj = {
+      ...newPayment.toObject(),
+      id: newPayment._id.toString(),
+      _id: newPayment._id.toString(),
+    };
+    return NextResponse.json(returnObj, { status: 201 });
   } catch (err: any) {
     return NextResponse.json({ message: err.message || "Server error" }, { status: 500 });
   }

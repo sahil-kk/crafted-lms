@@ -3,6 +3,8 @@ import { verifyPaymentSignature } from "@/lib/razorpay";
 import { connectDB } from "@/lib/db";
 import { Payment } from "@/models/Payment";
 import { Student } from "@/models/Student";
+import { serverCache } from "@/lib/cache";
+import { sendPaymentNotificationToAccounts } from "@/lib/mailer";
 
 export async function POST(req: NextRequest) {
   try {
@@ -75,6 +77,22 @@ export async function POST(req: NextRequest) {
         paymentRecord.razorpaySignature = razorpay_signature;
         paymentRecord.receiptNumber = paymentRecord.receiptNumber || receiptNumber;
         await paymentRecord.save();
+
+        serverCache.invalidateTags(["bootstrap"]);
+        serverCache.clear();
+
+        sendPaymentNotificationToAccounts({
+          studentName: paymentRecord.studentName,
+          studentId: displayStudentId,
+          amount: paymentRecord.amount,
+          receiptNumber: paymentRecord.receiptNumber,
+          paymentId: payment_id,
+          orderId: order_id,
+          classGrade: paymentRecord.classGrade,
+          paymentMethod: "Razorpay (Online)",
+          paidAt: paymentRecord.paidAt,
+          description: paymentRecord.description,
+        }).catch(console.error);
       }
     } catch (dbErr) {
       // Log DB error but don't fail verification if DB is offline

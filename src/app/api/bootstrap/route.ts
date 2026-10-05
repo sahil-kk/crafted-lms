@@ -42,8 +42,19 @@ export async function GET(req: NextRequest) {
     if (isAdmin) {
       paymentsPromise = Payment.find().sort({ dueDate: -1 }).lean();
     } else if (user.role === "student") {
-      const studentIds: string[] = [user.id, user.studentId].filter((id): id is string => Boolean(id));
-      paymentsPromise = Payment.find({ studentId: { $in: studentIds } }).sort({ dueDate: -1 }).lean();
+      paymentsPromise = (async () => {
+        const studentIds: string[] = [user.id, user.studentId].filter((id): id is string => Boolean(id));
+        try {
+          const studentDoc = await Student.findOne({
+            $or: [{ _id: user.id }, { studentId: user.studentId || user.id }],
+          }).lean();
+          if (studentDoc) {
+            if (studentDoc._id) studentIds.push(studentDoc._id.toString());
+            if (studentDoc.studentId) studentIds.push(studentDoc.studentId);
+          }
+        } catch {}
+        return Payment.find({ studentId: { $in: Array.from(new Set(studentIds)) } }).sort({ dueDate: -1 }).lean();
+      })();
     } else if (user.role === "parent") {
       paymentsPromise = (async () => {
         const studentIds: string[] = [];

@@ -10,6 +10,9 @@ export interface IPayment extends Document {
   paidAt?: Date;
   classGrade?: string;
   batch?: string;
+  description?: string;
+  reminderSentAt?: Date;
+  reminderCount?: number;
   razorpayOrderId?: string;
   razorpayPaymentId?: string;
   razorpaySignature?: string;
@@ -30,6 +33,9 @@ const PaymentSchema = new Schema<IPayment>(
     paidAt: { type: Date },
     classGrade: { type: String },
     batch: { type: String },
+    description: { type: String, default: "Tuition & Course Academic Fee" },
+    reminderSentAt: { type: Date },
+    reminderCount: { type: Number, default: 0 },
     razorpayOrderId: { type: String },
     razorpayPaymentId: { type: String },
     razorpaySignature: { type: String },

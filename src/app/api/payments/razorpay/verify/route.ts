@@ -4,6 +4,8 @@ import { requireAuth } from "@/lib/auth";
 import { Payment } from "@/models/Payment";
 import { Student } from "@/models/Student";
 import { verifyPaymentSignature } from "@/lib/razorpay";
+import { serverCache } from "@/lib/cache";
+import { sendPaymentNotificationToAccounts } from "@/lib/mailer";
 
 export async function POST(req: NextRequest) {
   try {
@@ -67,6 +69,24 @@ export async function POST(req: NextRequest) {
     payment.receiptNumber = payment.receiptNumber || receiptNumber;
 
     await payment.save();
+
+    // Invalidate server caches so student & admin dashboards update immediately
+    serverCache.invalidateTags(["bootstrap"]);
+    serverCache.clear();
+
+    // Send confirmation notification to Crafted accounts email (accounts@craftedlearn.com)
+    sendPaymentNotificationToAccounts({
+      studentName: payment.studentName,
+      studentId: displayStudentId,
+      amount: payment.amount,
+      receiptNumber: payment.receiptNumber,
+      paymentId: razorpay_payment_id,
+      orderId: razorpay_order_id,
+      classGrade: payment.classGrade,
+      paymentMethod: "Razorpay (Online)",
+      paidAt: payment.paidAt,
+      description: payment.description,
+    }).catch(console.error);
 
     return NextResponse.json({
       success: true,

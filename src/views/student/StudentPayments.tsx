@@ -21,10 +21,11 @@ import { useAppData, PaymentObj } from "@/hooks/useAppData";
 import { useRazorpay } from "@/hooks/useRazorpay";
 import { PaymentReceiptModal } from "@/components/payments/PaymentReceiptModal";
 import { format } from "date-fns";
+import { formatClassOnly } from "@/lib/utils";
 
 export const StudentPayments = () => {
   const { user } = useAuth();
-  const { payments, updatePayment } = useAppData();
+  const { payments, updateLocalPayment, refreshData } = useAppData();
   const { initiatePayment, isProcessing, processingPaymentId } = useRazorpay();
 
   const [filter, setFilter] = useState<"all" | "pending" | "paid">("all");
@@ -75,12 +76,10 @@ export const StudentPayments = () => {
   const handlePayNow = (payment: PaymentObj) => {
     initiatePayment({
       payment,
-      onSuccess: (updated) => {
-        const id = updated._id || updated.id;
-        if (id) {
-          updatePayment(id, updated);
-        }
+      onSuccess: async (updated) => {
+        updateLocalPayment(updated);
         setSelectedReceipt(updated);
+        await refreshData();
       },
     });
   };
@@ -220,7 +219,7 @@ export const StudentPayments = () => {
                   <div className="space-y-1.5 flex-1">
                     <div className="flex items-center gap-2.5 flex-wrap">
                       <span className="font-semibold text-stone-900 text-base">
-                        Tuition & Academic Fee ({payment.classGrade || "Grade 10"})
+                        {payment.description || "Tuition & Course Academic Fee"} ({formatClassOnly(payment.classGrade)})
                       </span>
                       {isPaid ? (
                         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
@@ -233,11 +232,6 @@ export const StudentPayments = () => {
                       ) : (
                         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
                           <Clock className="h-3 w-3" /> Due Soon
-                        </span>
-                      )}
-                      {payment.batch && (
-                        <span className="text-xs px-2 py-0.5 rounded bg-stone-100 text-stone-600 font-medium">
-                          {payment.batch}
                         </span>
                       )}
                     </div>
