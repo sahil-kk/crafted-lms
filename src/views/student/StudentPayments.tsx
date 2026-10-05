@@ -160,13 +160,13 @@ export const StudentPayments = () => {
         </div>
 
         {/* Tab Filters */}
-        <div className="flex items-center justify-between gap-4 border-b border-stone-200 pb-3">
-          <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between gap-4 border-b border-stone-200 pb-3 overflow-x-auto">
+          <div className="flex items-center gap-2 overflow-x-auto py-0.5 shrink-0">
             <Button
               variant={filter === "all" ? "hero" : "ghost"}
               size="sm"
               onClick={() => setFilter("all")}
-              className="rounded-lg text-xs"
+              className="rounded-lg text-xs whitespace-nowrap"
             >
               All Invoices ({myPayments.length})
             </Button>
@@ -174,7 +174,7 @@ export const StudentPayments = () => {
               variant={filter === "pending" ? "hero" : "ghost"}
               size="sm"
               onClick={() => setFilter("pending")}
-              className="rounded-lg text-xs"
+              className="rounded-lg text-xs whitespace-nowrap"
             >
               Pending ({myPayments.filter((p) => p.status !== "paid").length})
             </Button>
@@ -182,7 +182,7 @@ export const StudentPayments = () => {
               variant={filter === "paid" ? "hero" : "ghost"}
               size="sm"
               onClick={() => setFilter("paid")}
-              className="rounded-lg text-xs"
+              className="rounded-lg text-xs whitespace-nowrap"
             >
               Paid Receipts ({myPayments.filter((p) => p.status === "paid").length})
             </Button>
