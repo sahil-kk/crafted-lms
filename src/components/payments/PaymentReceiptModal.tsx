@@ -15,6 +15,7 @@ import {
   Phone,
   Globe,
   Loader2,
+  Download,
 } from "lucide-react";
 import { PaymentObj, useAppData } from "@/hooks/useAppData";
 import { format } from "date-fns";
@@ -552,7 +553,21 @@ export const PaymentReceiptModal = ({ payment, open, onOpenChange }: PaymentRece
             <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
               Close
             </Button>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const id = payment?._id || payment?.id;
+                  if (id) {
+                    window.open(`/api/payments/${id}/pdf`, "_blank");
+                  }
+                }}
+                className="gap-1.5 border-stone-200 text-stone-700 hover:bg-stone-100 text-xs sm:text-sm font-semibold px-2.5 sm:px-3"
+              >
+                <Download className="h-3.5 w-3.5 text-stone-600" />
+                Download PDF
+              </Button>
               <Button
                 variant="outline"
                 size="sm"

@@ -1,5 +1,6 @@
 import { Resend } from "resend";
 import { formatClassOnly } from "./mailer";
+import { generateFeeReceiptPdf } from "./pdfReceipt";
 
 export function getResendClient(): Resend | null {
   const apiKey = (process.env.RESEND_API_KEY || "").trim();
@@ -424,12 +425,28 @@ export async function sendFeeReceiptEmail(details: FeeReceiptEmailDetails): Prom
   }
 
   try {
+    // Generate official PDF receipt attachment
+    let attachments: any[] | undefined;
+    try {
+      const pdfBuffer = generateFeeReceiptPdf(details);
+      attachments = [
+        {
+          filename: `Crafted_Fee_Receipt_${receiptNumber}.pdf`,
+          content: pdfBuffer,
+          contentType: "application/pdf",
+        },
+      ];
+    } catch (pdfErr) {
+      console.error("[FEE RECEIPT PDF GENERATION ERROR]", pdfErr);
+    }
+
     const emailPayload: any = {
       from: DEFAULT_FROM_EMAIL,
       to: validRecipients,
       replyTo: DEFAULT_REPLY_TO,
       subject,
       html: htmlContent,
+      attachments,
     };
 
     if (process.env.RESEND_BCC_ACCOUNTS === "true") {
