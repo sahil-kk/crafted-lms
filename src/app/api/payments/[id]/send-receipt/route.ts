@@ -112,6 +112,17 @@ export async function POST(
       description: payment.description,
     });
 
+    if (result.simulated) {
+      return NextResponse.json(
+        {
+          success: false,
+          simulated: true,
+          message: "Email could not be delivered: RESEND_API_KEY is not configured in your production server environment variables (e.g. Vercel Project Settings).",
+        },
+        { status: 400 }
+      );
+    }
+
     if (!result.success) {
       return NextResponse.json(
         { message: result.error || "Failed to send receipt email via Resend" },
@@ -124,7 +135,6 @@ export async function POST(
     return NextResponse.json({
       success: true,
       message: `Receipt #${payment.receiptNumber} emailed successfully to ${recipients}`,
-      simulated: result.simulated,
     });
   } catch (err: any) {
     console.error("POST /api/payments/[id]/send-receipt error:", err);
