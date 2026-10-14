@@ -6,7 +6,7 @@ import { Student } from "@/models/Student";
 import { User } from "@/models/User";
 import { Announcement } from "@/models/Announcement";
 import { serverCache } from "@/lib/cache";
-import { sendPaymentReminderEmail } from "@/lib/mailer";
+import { sendPaymentReminderNotification } from "@/lib/notifications";
 
 import mongoose from "mongoose";
 
@@ -43,10 +43,13 @@ export async function POST(
     }).lean();
 
     const studentEmail = (studentDoc as any)?.email || (userDoc as any)?.email;
+    const studentPhone = (studentDoc as any)?.phone || (userDoc as any)?.phone;
     const studentName = payment.studentName || (studentDoc as any)?.name || (userDoc as any)?.name || "Student";
+    const studentCode = (studentDoc as any)?.studentId || (userDoc as any)?.studentId || payment.studentId;
 
-    // Lookup parent email if linked
+    // Lookup parent details if linked
     let parentEmail: string | undefined;
+    let parentPhone: string | undefined;
     const parentUser = await User.findOne({
       role: "parent",
       $or: [
@@ -56,44 +59,40 @@ export async function POST(
       ],
     }).lean();
 
-    if (parentUser?.email) {
-      parentEmail = parentUser.email;
+    if (parentUser) {
+      if (parentUser.email) parentEmail = parentUser.email;
+      if (parentUser.phone) parentPhone = parentUser.phone;
     }
 
-    // 1. Send Email Reminder
-    let emailSent = false;
-    const primaryEmail = studentEmail || parentEmail;
-    if (primaryEmail) {
-      const mailRes = await sendPaymentReminderEmail({
-        recipientEmail: primaryEmail,
-        studentName,
-        amount: payment.amount,
-        dueDate: payment.dueDate,
-        classGrade: payment.classGrade,
-        description: payment.description,
-      });
-      emailSent = mailRes.success;
+    // 1. Dispatch Message 2 (Payment Reminder Notification: WhatsApp & Email)
+    const notifResult = await sendPaymentReminderNotification({
+      studentName,
+      studentCode,
+      amount: payment.amount,
+      dueDate: payment.dueDate,
+      classGrade: payment.classGrade || (studentDoc as any)?.course || "",
+      description: payment.description || "Tuition & Course Academic Fee",
+      studentPhone,
+      studentEmail,
+      parentPhone,
+      parentEmail,
+    });
 
-      // If both emails are different, send to parent too
-      if (parentEmail && parentEmail !== primaryEmail) {
-        sendPaymentReminderEmail({
-          recipientEmail: parentEmail,
-          studentName,
-          amount: payment.amount,
-          dueDate: payment.dueDate,
-          classGrade: payment.classGrade,
-          description: payment.description,
-        }).catch(console.error);
-      }
-    }
-
-    // 2. Create in-app high-priority announcement for the student
+    // 2. Create in-app high-priority announcement strictly scoped to this student
+    const studentIdentifier = String(studentDoc?._id || payment.studentId);
+    const studentIdsList = Array.from(new Set([studentIdentifier, String(payment.studentId), String(studentCode)].filter(Boolean)));
     const dueDateStr = new Date(payment.dueDate).toLocaleDateString("en-IN", { dateStyle: "medium" });
+
     try {
       await Announcement.create({
         title: `Fee Due Notice: ₹${payment.amount.toLocaleString("en-IN")}`,
-        content: `Dear ${studentName}, your fee payment of ₹${payment.amount.toLocaleString("en-IN")} for ${payment.description || "Tuition & Academic Course"} is pending (Due Date: ${dueDateStr}). Please complete the payment via the Fee & Payments portal.`,
+        content: `Dear ${studentName}, your fee payment of ₹${payment.amount.toLocaleString("en-IN")} for ${payment.description || "Tuition & Academic Course"} is pending (Due Date: ${dueDateStr}). Please complete your payment via the Fee & Payments portal.`,
         priority: "high",
+        studentId: studentIdentifier,
+        studentIds: studentIdsList,
+        is_global: false,
+        category: "fee",
+        authorRole: "admin",
       });
     } catch (announcementErr) {
       console.warn("Could not create reminder announcement:", announcementErr);
@@ -113,10 +112,14 @@ export async function POST(
       _id: payment._id.toString(),
     };
 
+    const primaryRecipient = studentEmail || parentEmail;
     return NextResponse.json({
       success: true,
-      message: `Payment reminder sent successfully to ${studentName}${primaryEmail ? ` (${primaryEmail})` : ""}`,
+      message: `Payment reminder sent successfully to ${studentName}${primaryRecipient ? ` (${primaryRecipient})` : ""}`,
       payment: payload,
+      whatsappUrl: notifResult.whatsappUrl,
+      whatsappText: notifResult.whatsappText,
+      targetPhone: notifResult.targetPhone,
     });
   } catch (err: any) {
     console.error("POST /api/payments/[id]/reminder error:", err);

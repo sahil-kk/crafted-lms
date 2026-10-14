@@ -74,6 +74,28 @@ const StudentDashboard = () => {
   // Latest exam marks for display
   const recentMarks = [...myResults].slice(0, 6);
 
+  // Selected date schedule derivation
+  const selectedDayName = calDate ? format(calDate, "EEEE") : "";
+  const selectedDateStr = calDate ? format(calDate, "yyyy-MM-dd") : "";
+
+  const selectedDayClasses = myTimetable.filter(
+    (t: TimetableObj) => t.day?.toLowerCase() === selectedDayName.toLowerCase()
+  );
+
+  const selectedDayExams = myExams.filter(
+    (e: any) => e.starts_at && format(new Date(e.starts_at), "yyyy-MM-dd") === selectedDateStr
+  );
+
+  const hasClassesOnDate = (date: Date) => {
+    const dayName = format(date, "EEEE").toLowerCase();
+    return myTimetable.some((t: TimetableObj) => t.day?.toLowerCase() === dayName);
+  };
+
+  const hasExamsOnDate = (date: Date) => {
+    const dateStr = format(date, "yyyy-MM-dd");
+    return myExams.some((e: any) => e.starts_at && format(new Date(e.starts_at), "yyyy-MM-dd") === dateStr);
+  };
+
   return (
     <DashboardLayout role="student">
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 sm:gap-6">
@@ -368,34 +390,82 @@ const StudentDashboard = () => {
         {/* ── RIGHT COLUMN ── */}
         <div className="xl:col-span-4 flex flex-col gap-4 sm:gap-6 min-w-0">
 
-          {/* Calendar */}
-          <Card className="p-2 shadow-card border-border/60 overflow-hidden">
-            <Calendar
-              mode="single"
-              selected={calDate}
-              onSelect={setCalDate}
-              className="w-full"
-              classNames={{
-                months: "w-full",
-                month: "w-full",
-                caption: "flex justify-between items-center px-3 py-2 mb-1",
-                caption_label: "font-bold text-sm text-foreground",
-                nav: "flex items-center gap-1",
-                nav_button: "h-7 w-7 rounded-full hover:bg-secondary flex items-center justify-center transition-colors",
-                nav_button_previous: "",
-                nav_button_next: "",
-                table: "w-full border-collapse",
-                head_row: "flex justify-between mt-1",
-                head_cell: "w-9 font-semibold text-[10px] uppercase text-center",
-                row: "flex w-full justify-between mt-1",
-                cell: "h-9 w-9 text-center p-0 flex items-center justify-center relative",
-                day: "h-9 w-9 rounded-full hover:bg-[#f97316]/10 hover:text-[#f97316] transition-colors font-medium text-sm flex items-center justify-center",
-                day_selected: "!bg-[#f97316] !text-white font-bold",
-                day_today: "border border-primary text-primary font-bold",
-                day_outside: "text-muted-foreground/30",
-                day_disabled: "opacity-25",
-              } as any}
-            />
+          {/* Calendar Widget */}
+          <Card className="shadow-card border-border/60 overflow-hidden">
+            <div className="p-2">
+              <Calendar
+                mode="single"
+                selected={calDate}
+                onSelect={setCalDate}
+                className="w-full"
+                modifiers={{
+                  hasClasses: (date: Date) => hasClassesOnDate(date),
+                  hasExams: (date: Date) => hasExamsOnDate(date),
+                }}
+                modifiersClassNames={{
+                  hasClasses: "font-semibold",
+                  hasExams: "text-rose-600 font-bold",
+                }}
+                classNames={{
+                  months: "w-full",
+                  month: "w-full",
+                  caption: "flex justify-between items-center px-3 py-2 mb-1",
+                  caption_label: "font-bold text-sm text-foreground",
+                  nav: "flex items-center gap-1",
+                  nav_button: "h-7 w-7 rounded-full hover:bg-secondary flex items-center justify-center transition-colors",
+                  nav_button_previous: "",
+                  nav_button_next: "",
+                  table: "w-full border-collapse",
+                  head_row: "flex justify-between mt-1",
+                  head_cell: "w-9 font-semibold text-[10px] uppercase text-center text-muted-foreground",
+                  row: "flex w-full justify-between mt-1",
+                  cell: "h-9 w-9 text-center p-0 flex items-center justify-center relative",
+                  day: "h-9 w-9 rounded-full hover:bg-[#f97316]/10 hover:text-[#f97316] transition-colors font-medium text-sm flex items-center justify-center",
+                  day_selected: "!bg-[#f97316] !text-white font-bold",
+                  day_today: "border border-[#f97316] text-[#f97316] font-bold",
+                  day_outside: "text-muted-foreground/30",
+                  day_disabled: "opacity-25",
+                } as any}
+              />
+            </div>
+
+            {/* Daily Schedule Preview under Calendar */}
+            <div className="border-t border-border/60 px-4 py-3 bg-muted/20">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <Clock className="h-3.5 w-3.5 text-primary" />
+                  {calDate ? format(calDate, "EEE, MMM d") : "Schedule"}
+                </span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-bold">
+                  {selectedDayClasses.length + selectedDayExams.length} {selectedDayClasses.length + selectedDayExams.length === 1 ? "Session" : "Sessions"}
+                </span>
+              </div>
+
+              {selectedDayClasses.length === 0 && selectedDayExams.length === 0 ? (
+                <p className="text-xs text-muted-foreground/75 italic py-1">No sessions scheduled for this day.</p>
+              ) : (
+                <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                  {selectedDayExams.map((exam: any) => (
+                    <div key={exam._id || exam.id} className="p-2 rounded-lg bg-rose-50/80 border border-rose-200/70 text-xs">
+                      <div className="font-bold text-rose-800 flex items-center justify-between">
+                        <span>📝 {exam.title}</span>
+                        <span className="text-[10px] text-rose-600 font-semibold">{exam.duration_minutes}m</span>
+                      </div>
+                      <div className="text-[11px] text-rose-700/80 mt-0.5">{exam.subject} &bull; Scheduled Exam</div>
+                    </div>
+                  ))}
+                  {selectedDayClasses.map((cls: TimetableObj) => (
+                    <div key={cls._id || cls.id} className="p-2 rounded-lg bg-orange-50/70 border border-orange-200/60 text-xs">
+                      <div className="font-bold text-stone-800 flex items-center justify-between">
+                        <span>{cls.subject}</span>
+                        <span className="text-[10px] text-primary font-bold">{cls.time}</span>
+                      </div>
+                      <div className="text-[11px] text-stone-600 mt-0.5">{cls.teacher}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </Card>
 
           {/* Announcements */}

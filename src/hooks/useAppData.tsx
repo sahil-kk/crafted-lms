@@ -76,6 +76,8 @@ interface CreateAnnouncementInput {
   title: string;
   body: string;
   is_global: boolean;
+  studentId?: string | null;
+  category?: string;
 }
 
 interface CreateExamInput {
@@ -139,7 +141,7 @@ interface AppDataContextValue extends MockAppState {
   deleteResult: (id: string) => void;
   updateResult: (id: string, res: Partial<ResultObj>) => void;
   payments: PaymentObj[];
-  createPayment: (input: PaymentObj) => void;
+  createPayment: (input: PaymentObj) => Promise<any>;
   deletePayment: (id: string) => void;
   updatePayment: (id: string, input: Partial<PaymentObj>) => Promise<void>;
   updateLocalPayment: (updated: PaymentObj) => void;
@@ -257,11 +259,14 @@ function formatBootstrap(bootstrap: any) {
       : [],
     announcements: (announcements && announcements.length > 0)
       ? announcements.map((a: any) => ({
-          id: a._id,
+          id: a._id || a.id,
           title: a.title,
           body: a.content || a.message || a.body || "",
-          is_global: true,
-          created_at: a.createdAt || new Date().toISOString(),
+          is_global: a.is_global !== undefined ? Boolean(a.is_global) : !Boolean(a.studentId),
+          created_at: a.createdAt || a.created_at || new Date().toISOString(),
+          studentId: a.studentId || null,
+          category: a.category || "general",
+          priority: a.priority || "medium",
         }))
       : [],
     recordedClasses: (classes && classes.length > 0)
@@ -704,17 +709,27 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
     },
     createAnnouncement: async (input) => {
       try {
-        const payload = { title: input.title, content: input.body, priority: input.is_global ? "high" : "medium" };
+        const payload = {
+          title: input.title,
+          content: input.body,
+          priority: input.is_global ? "high" : "medium",
+          is_global: input.is_global,
+          studentId: input.studentId || null,
+          category: input.category || "general",
+        };
         const res = await apiClient<any>("/announcements", { method: "POST", body: JSON.stringify(payload) });
         setState((prev) => ({
           ...prev,
           announcements: [
             {
-              id: res._id || createId("announcement"),
+              id: res._id || res.id || createId("announcement"),
               title: input.title,
               body: input.body,
               is_global: input.is_global,
               created_at: new Date().toISOString(),
+              studentId: input.studentId || null,
+              category: input.category || "general",
+              priority: (input.is_global ? "high" : "medium") as any,
             },
             ...prev.announcements,
           ],
@@ -730,7 +745,14 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
     },
     updateAnnouncement: async (id, input) => {
       try { 
-        const payload = { title: input.title, content: input.body, priority: input.is_global ? "high" : "medium" };
+        const payload = {
+          title: input.title,
+          content: input.body,
+          priority: input.is_global ? "high" : "medium",
+          is_global: input.is_global,
+          studentId: input.studentId,
+          category: input.category,
+        };
         await apiClient(`/announcements/${id}`, { method: "PUT", body: JSON.stringify(payload) }); 
       } catch(e) {}
       setState((prev) => ({
@@ -1069,8 +1091,11 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
         };
         setPayments((prev) => [normalized, ...prev]);
         queryClient.invalidateQueries({ queryKey: ["bootstrap"] });
+        return res;
       } catch (e) {
-        setPayments((prev) => [{ ...input, id: createId("pay"), _id: createId("pay") }, ...prev]);
+        const fallback = { ...input, id: createId("pay"), _id: createId("pay") };
+        setPayments((prev) => [fallback, ...prev]);
+        return fallback;
       }
     },
     deletePayment: async (id) => {

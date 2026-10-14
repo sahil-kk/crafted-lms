@@ -3,8 +3,10 @@ import { connectDB } from "@/lib/db";
 import { requireAuth } from "@/lib/auth";
 import { Payment } from "@/models/Payment";
 import { Student } from "@/models/Student";
+import { User } from "@/models/User";
 import { serverCache } from "@/lib/cache";
 import { sendPaymentNotificationToAccounts } from "@/lib/mailer";
+import { sendFeeReceiptEmail } from "@/lib/resend";
 
 import mongoose from "mongoose";
 
@@ -65,7 +67,56 @@ export async function PUT(
         payment.receiptNumber = receiptNumber;
       }
 
-      // Notify accounts
+      // 1. Dispatch official fee receipt to student and linked parent via Resend
+      (async () => {
+        try {
+          const studentDoc = await Student.findOne({
+            $or: [{ _id: payment.studentId }, { studentId: payment.studentId }],
+          }).lean();
+
+          const userDoc = await User.findOne({
+            $or: [{ _id: payment.studentId }, { studentId: payment.studentId }],
+          }).lean();
+
+          const studentEmail = (studentDoc as any)?.email || (userDoc as any)?.email;
+
+          let parentEmail: string | undefined;
+          const parentUser = await User.findOne({
+            role: "parent",
+            $or: [
+              { linkedStudentId: payment.studentId },
+              { linkedStudentId: (studentDoc as any)?._id },
+              { studentId: payment.studentId },
+            ],
+          }).lean();
+
+          if (parentUser?.email) {
+            parentEmail = parentUser.email;
+          }
+
+          const primaryEmail = studentEmail || parentEmail;
+          if (primaryEmail) {
+            await sendFeeReceiptEmail({
+              studentName: payment.studentName,
+              studentId: (studentDoc as any)?.studentId || payment.studentId,
+              recipientEmail: primaryEmail,
+              parentEmail: parentEmail && parentEmail !== primaryEmail ? parentEmail : undefined,
+              amount: payment.amount,
+              receiptNumber: payment.receiptNumber,
+              paymentId: payment.razorpayPaymentId || "Admin Manual",
+              orderId: payment.razorpayOrderId || "N/A",
+              classGrade: payment.classGrade,
+              paymentMethod: payment.paymentMethod || "Manual / Admin",
+              paidAt: payment.paidAt,
+              description: payment.description,
+            });
+          }
+        } catch (receiptErr) {
+          console.error("Resend fee receipt error on manual payment update:", receiptErr);
+        }
+      })().catch(console.error);
+
+      // 2. Notify accounts
       sendPaymentNotificationToAccounts({
         studentName: payment.studentName,
         studentId: payment.studentId,

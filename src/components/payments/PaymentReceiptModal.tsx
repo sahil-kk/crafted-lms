@@ -14,11 +14,13 @@ import {
   Mail,
   Phone,
   Globe,
+  Loader2,
 } from "lucide-react";
 import { PaymentObj, useAppData } from "@/hooks/useAppData";
 import { format } from "date-fns";
 import { apiClient } from "@/lib/apiClient";
 import { formatClassOnly } from "@/lib/utils";
+import { toast } from "sonner";
 
 interface PaymentReceiptModalProps {
   payment: PaymentObj | null;
@@ -241,10 +243,10 @@ const ReceiptContent = ({
               </div>
             </div>
 
-            {/* Website */}
+            {/* Website with Crafted Brand Icon */}
             <div className="flex items-center justify-center gap-1.5 pl-2">
-              <div className="w-5 h-5 rounded-full bg-[#FFEDD5] flex items-center justify-center text-[#EA580C] shrink-0">
-                <Globe className="w-2.5 h-2.5" />
+              <div className="w-5 h-5 rounded-full bg-[#FFEDD5] flex items-center justify-center shrink-0 p-0.5">
+                <img src="/crafted-icon.svg" alt="Crafted" className="w-3.5 h-3.5 rounded object-contain" />
               </div>
               <div className="text-left">
                 <span className="text-[8px] font-semibold text-stone-400 uppercase block leading-none">Website</span>
@@ -278,10 +280,10 @@ const ReceiptContent = ({
             </div>
           </div>
 
-          {/* Column 3: Website */}
+          {/* Column 3: Website with Crafted Brand Icon */}
           <div className="flex items-center justify-center gap-2.5 px-3 text-stone-700">
-            <div className="w-6 h-6 rounded-full bg-[#FFEDD5] flex items-center justify-center text-[#EA580C] shrink-0">
-              <Globe className="w-3.5 h-3.5" />
+            <div className="w-6 h-6 rounded-full bg-[#FFEDD5] flex items-center justify-center shrink-0 p-0.5">
+              <img src="/crafted-icon.svg" alt="Crafted" className="w-4 h-4 rounded object-contain" />
             </div>
             <div className="text-left">
               <span className="text-[9px] font-semibold text-stone-400 uppercase block leading-none">Website</span>
@@ -392,6 +394,30 @@ export const PaymentReceiptModal = ({ payment, open, onOpenChange }: PaymentRece
     setTimeout(() => {
       document.title = originalTitle;
     }, 2000);
+  };
+
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
+
+  const handleSendEmail = async () => {
+    const id = payment?._id || payment?.id;
+    if (!id) return;
+
+    try {
+      setIsSendingEmail(true);
+      const res = await apiClient<{ success: boolean; message: string; simulated?: boolean }>(
+        `/payments/${id}/send-receipt`,
+        { method: "POST" }
+      );
+      if (res.success) {
+        toast.success(res.message || "Fee receipt email dispatched!");
+      } else {
+        toast.error(res.message || "Failed to send receipt email");
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Failed to send receipt email");
+    } finally {
+      setIsSendingEmail(false);
+    }
   };
 
   const formatAmount = (amt: number) => {
@@ -528,6 +554,20 @@ export const PaymentReceiptModal = ({ payment, open, onOpenChange }: PaymentRece
               Close
             </Button>
             <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={isSendingEmail}
+                onClick={handleSendEmail}
+                className="gap-1.5 border-orange-200 text-stone-700 hover:bg-orange-50 text-xs sm:text-sm font-semibold px-2.5 sm:px-3"
+              >
+                {isSendingEmail ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-orange-600" />
+                ) : (
+                  <Mail className="h-3.5 w-3.5 text-[#EA580C]" />
+                )}
+                Email Receipt
+              </Button>
               <Button
                 size="sm"
                 onClick={handlePrint}

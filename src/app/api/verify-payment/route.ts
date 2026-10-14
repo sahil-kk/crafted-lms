@@ -3,8 +3,10 @@ import { verifyPaymentSignature } from "@/lib/razorpay";
 import { connectDB } from "@/lib/db";
 import { Payment } from "@/models/Payment";
 import { Student } from "@/models/Student";
+import { User } from "@/models/User";
 import { serverCache } from "@/lib/cache";
 import { sendPaymentNotificationToAccounts } from "@/lib/mailer";
+import { sendFeeReceiptEmail } from "@/lib/resend";
 
 export async function POST(req: NextRequest) {
   try {
@@ -81,6 +83,56 @@ export async function POST(req: NextRequest) {
         serverCache.invalidateTags(["bootstrap"]);
         serverCache.clear();
 
+        // 1. Dispatch fee receipt email to student and linked parent via Resend
+        (async () => {
+          try {
+            const studentDoc = await Student.findOne({
+              $or: [{ _id: paymentRecord.studentId }, { studentId: paymentRecord.studentId }],
+            }).lean();
+
+            const userDoc = await User.findOne({
+              $or: [{ _id: paymentRecord.studentId }, { studentId: paymentRecord.studentId }],
+            }).lean();
+
+            const studentEmail = (studentDoc as any)?.email || (userDoc as any)?.email;
+
+            let parentEmail: string | undefined;
+            const parentUser = await User.findOne({
+              role: "parent",
+              $or: [
+                { linkedStudentId: paymentRecord.studentId },
+                { linkedStudentId: (studentDoc as any)?._id },
+                { studentId: paymentRecord.studentId },
+              ],
+            }).lean();
+
+            if (parentUser?.email) {
+              parentEmail = parentUser.email;
+            }
+
+            const primaryEmail = studentEmail || parentEmail;
+            if (primaryEmail) {
+              await sendFeeReceiptEmail({
+                studentName: paymentRecord.studentName,
+                studentId: displayStudentId,
+                recipientEmail: primaryEmail,
+                parentEmail: parentEmail && parentEmail !== primaryEmail ? parentEmail : undefined,
+                amount: paymentRecord.amount,
+                receiptNumber: paymentRecord.receiptNumber,
+                paymentId: payment_id,
+                orderId: order_id,
+                classGrade: paymentRecord.classGrade,
+                paymentMethod: "Razorpay (Online)",
+                paidAt: paymentRecord.paidAt,
+                description: paymentRecord.description,
+              });
+            }
+          } catch (receiptErr) {
+            console.error("Resend fee receipt error in verify-payment:", receiptErr);
+          }
+        })().catch(console.error);
+
+        // 2. Send confirmation notification to Crafted accounts email (accounts@craftedlearn.com)
         sendPaymentNotificationToAccounts({
           studentName: paymentRecord.studentName,
           studentId: displayStudentId,

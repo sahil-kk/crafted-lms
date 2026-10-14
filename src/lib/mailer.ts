@@ -6,7 +6,7 @@ const ACCOUNTS_EMAIL = "accounts@craftedlearn.com";
  * Creates nodemailer transporter using available environment variables.
  * Supports SMTP_HOST / SMTP_USER / SMTP_PASS or GMAIL_USER / GMAIL_APP_PASSWORD.
  */
-function getTransporter() {
+export function getTransporter() {
   const host = process.env.SMTP_HOST;
   const port = Number(process.env.SMTP_PORT) || 587;
   const user = process.env.SMTP_USER || process.env.GMAIL_USER;
@@ -266,6 +266,7 @@ export async function sendPaymentReminderEmail(details: {
       await transporter.sendMail({
         from: `"Crafted Learning Hub" <${process.env.SMTP_USER || "accounts@craftedlearn.com"}>`,
         to: recipientEmail,
+        replyTo: "craftedlearninghub@gmail.com",
         subject: `Fee Payment Reminder: ₹${amount} Due for ${cleanClass}`,
         html: htmlContent,
       });
@@ -280,3 +281,100 @@ export async function sendPaymentReminderEmail(details: {
     return { success: false, error: err.message };
   }
 }
+
+/**
+ * Sends a new invoice creation email to student and linked parent.
+ */
+export async function sendInvoiceCreatedEmail(details: {
+  recipientEmail: string;
+  studentName: string;
+  amount: number;
+  dueDate: string | Date;
+  classGrade?: string;
+  description?: string;
+}) {
+  const {
+    recipientEmail,
+    studentName,
+    amount,
+    dueDate,
+    classGrade,
+    description = "Tuition & Course Academic Fee",
+  } = details;
+
+  const formattedDueDate = new Date(dueDate).toLocaleDateString("en-IN", {
+    dateStyle: "medium",
+  });
+  const cleanClass = formatClassOnly(classGrade);
+
+  const htmlContent = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 20px; background-color: #f9fafb; color: #111827; }
+        .card { max-width: 560px; margin: 0 auto; background: #ffffff; border-radius: 16px; border: 1px solid #e5e7eb; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
+        .header { background: #f97316; padding: 24px; text-align: center; color: #ffffff; }
+        .header h1 { margin: 0; font-size: 20px; font-weight: 800; letter-spacing: 0.04em; }
+        .header p { margin: 4px 0 0; font-size: 13px; opacity: 0.9; }
+        .content { padding: 24px; font-size: 14px; line-height: 1.6; }
+        .info-box { background: #fff7ed; border: 1px solid #ffedd5; border-radius: 12px; padding: 16px; margin: 16px 0; text-align: center; }
+        .info-box .amt { font-size: 26px; font-weight: 900; color: #ea580c; margin: 0; }
+        .btn-container { text-align: center; margin: 24px 0; }
+        .btn { background: #f97316; color: #ffffff !important; text-decoration: none; padding: 12px 28px; border-radius: 10px; font-weight: 700; display: inline-block; }
+        .footer { background: #f9fafb; padding: 16px 24px; text-align: center; font-size: 11px; color: #9ca3af; border-top: 1px solid #e5e7eb; }
+      </style>
+    </head>
+    <body>
+      <div class="card">
+        <div class="header">
+          <h1>CRAFTED LEARNING HUB</h1>
+          <p>New Fee Invoice Generated</p>
+        </div>
+        <div class="content">
+          <p>Dear <strong>${studentName}</strong> (or Parent/Guardian),</p>
+          <p>A new academic fee invoice has been generated for your course in <strong>${cleanClass}</strong>.</p>
+          <div class="info-box">
+            <p style="margin: 0; font-size: 12px; color: #9a3412; font-weight: 600; text-transform: uppercase;">Amount Due</p>
+            <p class="amt">₹${amount.toLocaleString("en-IN")}.00</p>
+            <p style="margin: 6px 0 0; font-size: 12px; color: #7c2d12;">Due Date: <strong>${formattedDueDate}</strong> &bull; ${description}</p>
+          </div>
+          <p>You can access your invoice, download payment receipts, and complete payment safely online via the portal:</p>
+          <div class="btn-container">
+            <a href="https://craftedlearn.com/dashboard/payments" class="btn">View & Pay Invoice</a>
+          </div>
+        </div>
+        <div class="footer">
+          Crafted Learning Hub &bull; accounts@craftedlearn.com &bull; +91 7356 324 680<br/>
+          craftedlearn.com
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+
+  console.log(`[INVOICE CREATED EMAIL] To: ${recipientEmail} | Student: ${studentName} | Amount: ₹${amount}`);
+
+  try {
+    const transporter = getTransporter();
+    if (transporter && recipientEmail) {
+      await transporter.sendMail({
+        from: `"Crafted Learning Hub" <${process.env.SMTP_USER || "accounts@craftedlearn.com"}>`,
+        to: recipientEmail,
+        replyTo: "craftedlearninghub@gmail.com",
+        subject: `New Invoice Generated: ₹${amount} for ${cleanClass}`,
+        html: htmlContent,
+      });
+      console.log(`[INVOICE CREATED EMAIL] Sent to ${recipientEmail}`);
+      return { success: true };
+    } else {
+      console.log(`[INVOICE CREATED EMAIL] Transporter not active. Simulated invoice notification logged.`);
+      return { success: true, simulated: true };
+    }
+  } catch (err: any) {
+    console.error(`[INVOICE CREATED EMAIL ERROR] Failed to send to ${recipientEmail}:`, err.message);
+    return { success: false, error: err.message };
+  }
+}
+

@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Search, DollarSign, CreditCard, Send, CheckCircle, AlertCircle, Clock, Trash2, Receipt, ShieldCheck, Loader2 } from "lucide-react";
+import { Plus, Search, DollarSign, CreditCard, Send, CheckCircle, AlertCircle, Clock, Trash2, Receipt, ShieldCheck, Loader2, MessageCircle, Mail } from "lucide-react";
 import { toast } from "sonner";
 import { useAppData, PaymentObj } from "@/hooks/useAppData";
 import { apiClient } from "@/lib/apiClient";
@@ -25,6 +25,7 @@ const AdminPayments = () => {
   const [selectedReceipt, setSelectedReceipt] = useState<PaymentObj | null>(null);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [reminderLoadingId, setReminderLoadingId] = useState<string | null>(null);
+  const [emailingReceiptId, setEmailingReceiptId] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
 
   const students = users.filter((u) => u.role === "student");
@@ -50,7 +51,7 @@ const AdminPayments = () => {
       setIsCreating(true);
       const cleanClass = formatClassOnly(student.course || "10th");
 
-      await createPayment({
+      const createdRes = await createPayment({
         studentId: student.id || (student as any)._id,
         studentName: student.full_name,
         amount: Number(form.amount),
@@ -60,7 +61,16 @@ const AdminPayments = () => {
         description: form.description?.trim() || "Tuition & Course Academic Fee",
       });
 
-      toast.success("Invoice created successfully!");
+      const waUrl = createdRes?.whatsappUrl;
+      toast.success("Invoice created successfully!", {
+        action: waUrl
+          ? {
+              label: "Share on WhatsApp",
+              onClick: () => window.open(waUrl, "_blank"),
+            }
+          : undefined,
+      });
+
       setOpen(false);
       setForm({
         studentId: "",
@@ -106,12 +116,21 @@ const AdminPayments = () => {
         success: boolean;
         message: string;
         payment?: any;
+        whatsappUrl?: string;
+        whatsappText?: string;
       }>(`/payments/${id}/reminder`, {
         method: "POST",
       });
 
       if (res.success) {
-        toast.success(res.message || `Payment reminder email sent to ${payment.studentName}`);
+        toast.success(res.message || `Payment reminder sent to ${payment.studentName}`, {
+          action: res.whatsappUrl
+            ? {
+                label: "Open WhatsApp",
+                onClick: () => window.open(res.whatsappUrl, "_blank"),
+              }
+            : undefined,
+        });
         if (res.payment) {
           updateLocalPayment(res.payment);
         }
@@ -120,9 +139,80 @@ const AdminPayments = () => {
         toast.error(res.message || "Failed to send payment reminder");
       }
     } catch (err: any) {
-      toast.error(err.message || "Failed to send payment reminder email");
+      toast.error(err.message || "Failed to send payment reminder");
     } finally {
       setReminderLoadingId(null);
+    }
+  };
+
+  const handleOpenWhatsAppReminder = (payment: PaymentObj) => {
+    const id = payment._id || payment.id;
+    const student = students.find(
+      (s) => s.id === payment.studentId || (s as any)._id === payment.studentId || s.studentId === payment.studentId
+    );
+    const phone = student?.phone || "";
+    const cleanClass = formatClassOnly(payment.classGrade);
+    const dueDateStr = new Date(payment.dueDate || new Date()).toLocaleDateString("en-IN", { dateStyle: "medium" });
+
+    const message = [
+      `⚠️ *CRAFTED LEARNING HUB — FEE PAYMENT REMINDER*`,
+      ``,
+      `Dear *${payment.studentName}* (or Parent/Guardian),`,
+      `This is a gentle reminder that your fee payment for *${cleanClass}* is pending.`,
+      ``,
+      `📋 *Payment Details:*`,
+      `• *Student:* ${payment.studentName}`,
+      `• *Class / Course:* ${cleanClass}`,
+      `• *Particulars:* ${payment.description || "Tuition & Course Academic Fee"}`,
+      `• *Amount Due:* ₹${payment.amount.toLocaleString("en-IN")}.00`,
+      `• *Due Date:* ${dueDateStr}`,
+      ``,
+      `💳 *Pay Securely Online via Portal:*`,
+      `https://craftedlearn.com/dashboard/payments`,
+      ``,
+      `Kindly disregard if already paid. For support, contact +91 7356 324 680.`,
+    ].join("\n");
+
+    let cleanPhone = phone.replace(/\D/g, "");
+    if (cleanPhone.length === 10) cleanPhone = "91" + cleanPhone;
+    else if (cleanPhone.length === 11 && cleanPhone.startsWith("0")) cleanPhone = "91" + cleanPhone.slice(1);
+
+    const waUrl = cleanPhone
+      ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`
+      : `https://wa.me/?text=${encodeURIComponent(message)}`;
+
+    window.open(waUrl, "_blank");
+
+    // Also inform backend to bump reminder count & save in-app notice
+    if (id) {
+      apiClient<any>(`/payments/${id}/reminder`, { method: "POST" })
+        .then((res) => {
+          if (res?.payment) updateLocalPayment(res.payment);
+          refreshData();
+        })
+        .catch(console.error);
+    }
+  };
+
+  const handleEmailReceipt = async (payment: PaymentObj) => {
+    const id = payment._id || payment.id;
+    if (!id) return;
+
+    try {
+      setEmailingReceiptId(id);
+      const res = await apiClient<{ success: boolean; message: string; simulated?: boolean }>(
+        `/payments/${id}/send-receipt`,
+        { method: "POST" }
+      );
+      if (res.success) {
+        toast.success(res.message || `Receipt email sent for ${payment.studentName}!`);
+      } else {
+        toast.error(res.message || "Failed to send receipt email");
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Failed to send receipt email");
+    } finally {
+      setEmailingReceiptId(null);
     }
   };
 
@@ -388,15 +478,31 @@ const AdminPayments = () => {
                       <TableCell className="text-right pr-4">
                         <div className="flex justify-end gap-1.5 items-center">
                           {p.status === "paid" && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-8 gap-1 text-xs text-emerald-700 hover:bg-emerald-50 border border-emerald-200"
-                              onClick={() => setSelectedReceipt(p)}
-                            >
-                              <Receipt className="h-3.5 w-3.5" />
-                              Receipt
-                            </Button>
+                            <>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-8 gap-1 text-xs text-emerald-700 hover:bg-emerald-50 border border-emerald-200"
+                                onClick={() => setSelectedReceipt(p)}
+                              >
+                                <Receipt className="h-3.5 w-3.5" />
+                                Receipt
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                disabled={emailingReceiptId === paymentKey}
+                                title="Email fee receipt via Resend to student & parent"
+                                className="h-8 w-8 text-orange-600 hover:text-orange-700 hover:bg-orange-50 border border-orange-200"
+                                onClick={() => handleEmailReceipt(p)}
+                              >
+                                {emailingReceiptId === paymentKey ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin text-orange-600" />
+                                ) : (
+                                  <Mail className="h-3.5 w-3.5" />
+                                )}
+                              </Button>
+                            </>
                           )}
                           {p.status !== "paid" && (
                             <>
@@ -426,6 +532,15 @@ const AdminPayments = () => {
                                 ) : (
                                   <Send className="h-4 w-4" />
                                 )}
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                title="Send fee payment reminder via WhatsApp"
+                                className="h-8 w-8 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+                                onClick={() => handleOpenWhatsAppReminder(p)}
+                              >
+                                <MessageCircle className="h-4 w-4" />
                               </Button>
                             </>
                           )}

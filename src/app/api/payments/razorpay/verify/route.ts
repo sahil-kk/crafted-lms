@@ -3,9 +3,11 @@ import { connectDB } from "@/lib/db";
 import { requireAuth } from "@/lib/auth";
 import { Payment } from "@/models/Payment";
 import { Student } from "@/models/Student";
+import { User } from "@/models/User";
 import { verifyPaymentSignature } from "@/lib/razorpay";
 import { serverCache } from "@/lib/cache";
 import { sendPaymentNotificationToAccounts } from "@/lib/mailer";
+import { sendFeeReceiptEmail } from "@/lib/resend";
 
 export async function POST(req: NextRequest) {
   try {
@@ -74,7 +76,57 @@ export async function POST(req: NextRequest) {
     serverCache.invalidateTags(["bootstrap"]);
     serverCache.clear();
 
-    // Send confirmation notification to Crafted accounts email (accounts@craftedlearn.com)
+    // 1. Resolve student and parent email addresses
+    (async () => {
+      try {
+        const studentDoc = await Student.findOne({
+          $or: [{ _id: payment.studentId }, { studentId: payment.studentId }],
+        }).lean();
+
+        const userDoc = await User.findOne({
+          $or: [{ _id: payment.studentId }, { studentId: payment.studentId }],
+        }).lean();
+
+        const studentEmail = (studentDoc as any)?.email || (userDoc as any)?.email;
+
+        // Lookup linked parent email
+        let parentEmail: string | undefined;
+        const parentUser = await User.findOne({
+          role: "parent",
+          $or: [
+            { linkedStudentId: payment.studentId },
+            { linkedStudentId: (studentDoc as any)?._id },
+            { studentId: payment.studentId },
+          ],
+        }).lean();
+
+        if (parentUser?.email) {
+          parentEmail = parentUser.email;
+        }
+
+        const primaryEmail = studentEmail || parentEmail;
+        if (primaryEmail) {
+          await sendFeeReceiptEmail({
+            studentName: payment.studentName,
+            studentId: displayStudentId,
+            recipientEmail: primaryEmail,
+            parentEmail: parentEmail && parentEmail !== primaryEmail ? parentEmail : undefined,
+            amount: payment.amount,
+            receiptNumber: payment.receiptNumber,
+            paymentId: razorpay_payment_id,
+            orderId: razorpay_order_id,
+            classGrade: payment.classGrade,
+            paymentMethod: "Razorpay (Online)",
+            paidAt: payment.paidAt,
+            description: payment.description,
+          });
+        }
+      } catch (receiptErr) {
+        console.error("Resend fee receipt email dispatch error:", receiptErr);
+      }
+    })().catch(console.error);
+
+    // 2. Send confirmation notification to Crafted accounts email (accounts@craftedlearn.com)
     sendPaymentNotificationToAccounts({
       studentName: payment.studentName,
       studentId: displayStudentId,

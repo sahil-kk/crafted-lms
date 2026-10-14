@@ -80,6 +80,7 @@ export async function GET(req: NextRequest) {
     let examQuery: any = {};
     let resultQuery: any = {};
     let courseQuery: any = {};
+    let announcementQuery: any = {};
 
     if (user.role === "teacher") {
       const scope = await getTeacherScope(user.id);
@@ -106,9 +107,69 @@ export async function GET(req: NextRequest) {
           { studentId: { $in: scope.assignedStudentObjectIds } },
         ],
       };
+      announcementQuery = {
+        $or: [
+          { is_global: true, studentId: null, studentIds: { $size: 0 } },
+          { is_global: true, studentId: { $in: [null, ""] } },
+          { is_global: { $ne: false }, studentId: null, studentIds: { $size: 0 } },
+          { is_global: { $ne: false }, studentId: { $in: [null, ""] } },
+          { authorId: user.id },
+          ...(scope.allStudentIdentifiers.length > 0
+            ? [
+                { studentId: { $in: scope.allStudentIdentifiers } },
+                { studentIds: { $in: scope.allStudentIdentifiers } },
+              ]
+            : []),
+        ],
+      };
     } else if (user.role === "student") {
       const studentIds = [user.id, user.studentId].filter((id): id is string => Boolean(id));
-      resultQuery = { studentId: { $in: studentIds } };
+      try {
+        const studentDoc = await Student.findOne({
+          $or: [{ _id: user.id }, { studentId: user.studentId || user.id }],
+        }).lean();
+        if (studentDoc) {
+          if (studentDoc._id) studentIds.push(studentDoc._id.toString());
+          if (studentDoc.studentId) studentIds.push(studentDoc.studentId);
+        }
+      } catch {}
+      const uniqueStudentIds = Array.from(new Set(studentIds));
+      resultQuery = { studentId: { $in: uniqueStudentIds } };
+      announcementQuery = {
+        $or: [
+          { is_global: true, studentId: null, studentIds: { $size: 0 } },
+          { is_global: true, studentId: { $in: [null, ""] } },
+          { is_global: { $ne: false }, studentId: null, studentIds: { $size: 0 } },
+          { is_global: { $ne: false }, studentId: { $in: [null, ""] } },
+          { studentId: { $in: uniqueStudentIds } },
+          { studentIds: { $in: uniqueStudentIds } },
+        ],
+      };
+    } else if (user.role === "parent") {
+      const studentIds: string[] = [];
+      if (user.studentId) studentIds.push(String(user.studentId));
+      try {
+        const parentUser = await User.findById(user.id);
+        if (parentUser?.linkedStudentId) {
+          studentIds.push(parentUser.linkedStudentId.toString());
+          const linkedStudent = await Student.findById(parentUser.linkedStudentId);
+          if (linkedStudent) {
+            if (linkedStudent.studentId) studentIds.push(linkedStudent.studentId);
+            if (linkedStudent._id) studentIds.push(linkedStudent._id.toString());
+          }
+        }
+      } catch {}
+      const uniqueStudentIds = Array.from(new Set(studentIds));
+      announcementQuery = {
+        $or: [
+          { is_global: true, studentId: null, studentIds: { $size: 0 } },
+          { is_global: true, studentId: { $in: [null, ""] } },
+          { is_global: { $ne: false }, studentId: null, studentIds: { $size: 0 } },
+          { is_global: { $ne: false }, studentId: { $in: [null, ""] } },
+          { studentId: { $in: uniqueStudentIds } },
+          { studentIds: { $in: uniqueStudentIds } },
+        ],
+      };
     }
 
     const [students, rawTeachers, parents, courses, announcements, exams, classes, results, timetables, payments, activeRateCards] =
@@ -117,7 +178,7 @@ export async function GET(req: NextRequest) {
         User.find({ role: "teacher" }).select("-password").sort({ createdAt: -1 }).lean(),
         User.find({ role: "parent" }).populate("linkedStudentId").select("-password").sort({ createdAt: -1 }).lean(),
         Course.find(courseQuery).sort({ classGrade: 1, subject: 1 }).lean(),
-        Announcement.find().sort({ createdAt: -1 }).lean(),
+        Announcement.find(announcementQuery).sort({ createdAt: -1 }).lean(),
         Exam.find(examQuery).sort({ createdAt: -1 }).lean(),
         RecordedClass.find().populate("course_id").sort({ createdAt: -1 }).lean(),
         Result.find(resultQuery).sort({ date: -1 }).lean(),

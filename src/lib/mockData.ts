@@ -72,6 +72,9 @@ export interface Announcement {
   body: string;
   is_global: boolean;
   created_at: string;
+  studentId?: string | null;
+  category?: string;
+  priority?: "low" | "medium" | "high";
 }
 
 export interface Exam {
