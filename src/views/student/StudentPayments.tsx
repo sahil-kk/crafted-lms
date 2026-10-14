@@ -25,7 +25,8 @@ import { formatClassOnly } from "@/lib/utils";
 
 export const StudentPayments = () => {
   const { user } = useAuth();
-  const { payments, updateLocalPayment, refreshData } = useAppData();
+  const { payments, updateLocalPayment, refreshData, isLoading } = useAppData();
+  const isPaymentsLoading = Boolean(isLoading && (!payments || payments.length === 0));
   const { initiatePayment, isProcessing, processingPaymentId } = useRazorpay();
 
   const [filter, setFilter] = useState<"all" | "pending" | "paid">("all");
@@ -109,9 +110,13 @@ export const StudentPayments = () => {
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Pending Dues
                 </p>
-                <h3 className="text-2xl font-bold text-stone-900 mt-1">
-                  ₹{stats.pending.toLocaleString("en-IN")}
-                </h3>
+                {isPaymentsLoading ? (
+                  <div className="h-7 w-28 bg-orange-500/20 animate-pulse rounded mt-1.5" />
+                ) : (
+                  <h3 className="text-2xl font-bold text-stone-900 mt-1">
+                    ₹{stats.pending.toLocaleString("en-IN")}
+                  </h3>
+                )}
                 <p className="text-xs text-orange-600 font-medium mt-1">
                   {stats.pendingCount} invoice{stats.pendingCount === 1 ? "" : "s"} due
                 </p>
@@ -128,9 +133,13 @@ export const StudentPayments = () => {
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Total Paid
                 </p>
-                <h3 className="text-2xl font-bold text-emerald-700 mt-1">
-                  ₹{stats.paid.toLocaleString("en-IN")}
-                </h3>
+                {isPaymentsLoading ? (
+                  <div className="h-7 w-28 bg-emerald-500/20 animate-pulse rounded mt-1.5" />
+                ) : (
+                  <h3 className="text-2xl font-bold text-emerald-700 mt-1">
+                    ₹{stats.paid.toLocaleString("en-IN")}
+                  </h3>
+                )}
                 <p className="text-xs text-emerald-600 font-medium mt-1">All verified & cleared</p>
               </div>
               <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-600">
@@ -145,9 +154,13 @@ export const StudentPayments = () => {
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Overdue Amount
                 </p>
-                <h3 className="text-2xl font-bold text-red-600 mt-1">
-                  ₹{stats.overdue.toLocaleString("en-IN")}
-                </h3>
+                {isPaymentsLoading ? (
+                  <div className="h-7 w-28 bg-red-500/20 animate-pulse rounded mt-1.5" />
+                ) : (
+                  <h3 className="text-2xl font-bold text-red-600 mt-1">
+                    ₹{stats.overdue.toLocaleString("en-IN")}
+                  </h3>
+                )}
                 <p className="text-xs text-muted-foreground font-medium mt-1">
                   {stats.overdue > 0 ? "Immediate clearance required" : "No overdue invoices"}
                 </p>
@@ -190,7 +203,20 @@ export const StudentPayments = () => {
         </div>
 
         {/* Invoice List */}
-        {filteredList.length === 0 ? (
+        {isPaymentsLoading ? (
+          <div className="grid grid-cols-1 gap-3.5">
+            {[1, 2, 3].map((i) => (
+              <Card key={i} className="p-5 border-border/70 animate-pulse flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-sm">
+                <div className="space-y-2 flex-1 min-w-0">
+                  <div className="h-5 w-56 bg-stone-200/80 rounded" />
+                  <div className="h-3.5 w-44 bg-stone-100 rounded" />
+                </div>
+                <div className="h-6 w-20 bg-stone-200/60 rounded-full" />
+                <div className="h-9 w-28 bg-stone-200/80 rounded-lg" />
+              </Card>
+            ))}
+          </div>
+        ) : filteredList.length === 0 ? (
           <Card className="p-12 text-center border-dashed">
             <div className="w-12 h-12 rounded-2xl bg-stone-100 flex items-center justify-center mx-auto text-muted-foreground mb-3">
               <FileText className="h-6 w-6" />

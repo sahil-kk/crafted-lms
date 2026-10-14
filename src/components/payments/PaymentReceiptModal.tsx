@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -310,6 +310,7 @@ export const PaymentReceiptModal = ({ payment, open, onOpenChange }: PaymentRece
   const { users } = useAppData();
   const [fetchedStudentId, setFetchedStudentId] = useState<string>("");
   const [mounted, setMounted] = useState<boolean>(false);
+  const [isSendingEmail, setIsSendingEmail] = useState<boolean>(false);
 
   useEffect(() => {
     setMounted(true);
@@ -395,8 +396,6 @@ export const PaymentReceiptModal = ({ payment, open, onOpenChange }: PaymentRece
       document.title = originalTitle;
     }, 2000);
   };
-
-  const [isSendingEmail, setIsSendingEmail] = useState(false);
 
   const handleSendEmail = async () => {
     const id = payment?._id || payment?.id;

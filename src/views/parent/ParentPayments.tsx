@@ -24,7 +24,8 @@ import { apiClient } from "@/lib/apiClient";
 
 export const ParentPayments = () => {
   const { user } = useAuth();
-  const { payments, updatePayment, users } = useAppData();
+  const { payments, updatePayment, users, isLoading } = useAppData();
+  const isPaymentsLoading = Boolean(isLoading && (!payments || payments.length === 0));
   const { initiatePayment, isProcessing, processingPaymentId } = useRazorpay();
 
   const [filter, setFilter] = useState<"all" | "pending" | "paid">("all");
@@ -248,7 +249,20 @@ export const ParentPayments = () => {
         </div>
 
         {/* Invoices */}
-        {filteredList.length === 0 ? (
+        {isPaymentsLoading ? (
+          <div className="grid grid-cols-1 gap-3.5">
+            {[1, 2, 3].map((i) => (
+              <Card key={i} className="p-5 border-border/70 animate-pulse flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-sm">
+                <div className="space-y-2 flex-1 min-w-0">
+                  <div className="h-5 w-56 bg-stone-200/80 rounded" />
+                  <div className="h-3.5 w-44 bg-stone-100 rounded" />
+                </div>
+                <div className="h-6 w-20 bg-stone-200/60 rounded-full" />
+                <div className="h-9 w-28 bg-stone-200/80 rounded-lg" />
+              </Card>
+            ))}
+          </div>
+        ) : filteredList.length === 0 ? (
           <Card className="p-12 text-center border-dashed">
             <div className="w-12 h-12 rounded-2xl bg-stone-100 flex items-center justify-center mx-auto text-muted-foreground mb-3">
               <FileText className="h-6 w-6" />

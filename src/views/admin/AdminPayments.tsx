@@ -18,7 +18,8 @@ import { format } from "date-fns";
 import { PaymentReceiptModal } from "@/components/payments/PaymentReceiptModal";
 
 const AdminPayments = () => {
-  const { users, payments, createPayment, deletePayment, updatePayment, updateLocalPayment, refreshData } = useAppData();
+  const { users, payments, createPayment, deletePayment, updatePayment, updateLocalPayment, refreshData, isLoading } = useAppData();
+  const isPaymentsLoading = Boolean(isLoading && (!payments || payments.length === 0));
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -346,7 +347,11 @@ const AdminPayments = () => {
           <div>
             <span className="text-xs font-bold uppercase tracking-wider text-emerald-600">Total Fees Collected</span>
             <div className="flex items-baseline gap-1 mt-1">
-              <h3 className="font-display text-3xl font-extrabold text-foreground">₹{stats.totalPaid.toLocaleString()}</h3>
+              {isPaymentsLoading ? (
+                <div className="h-8 w-28 bg-emerald-500/20 animate-pulse rounded-md mt-1" />
+              ) : (
+                <h3 className="font-display text-3xl font-extrabold text-foreground">₹{stats.totalPaid.toLocaleString()}</h3>
+              )}
             </div>
           </div>
           <div className="h-12 w-12 rounded-2xl bg-emerald-500/20 flex items-center justify-center text-emerald-600">
@@ -358,7 +363,11 @@ const AdminPayments = () => {
           <div>
             <span className="text-xs font-bold uppercase tracking-wider text-amber-600">Pending Receivables</span>
             <div className="flex items-baseline gap-1 mt-1">
-              <h3 className="font-display text-3xl font-extrabold text-foreground">₹{stats.totalPending.toLocaleString()}</h3>
+              {isPaymentsLoading ? (
+                <div className="h-8 w-28 bg-amber-500/20 animate-pulse rounded-md mt-1" />
+              ) : (
+                <h3 className="font-display text-3xl font-extrabold text-foreground">₹{stats.totalPending.toLocaleString()}</h3>
+              )}
             </div>
           </div>
           <div className="h-12 w-12 rounded-2xl bg-amber-500/20 flex items-center justify-center text-amber-600">
@@ -370,7 +379,11 @@ const AdminPayments = () => {
           <div>
             <span className="text-xs font-bold uppercase tracking-wider text-red-600">Overdue Payments</span>
             <div className="flex items-baseline gap-1 mt-1">
-              <h3 className="font-display text-3xl font-extrabold text-foreground">₹{stats.totalOverdue.toLocaleString()}</h3>
+              {isPaymentsLoading ? (
+                <div className="h-8 w-28 bg-red-500/20 animate-pulse rounded-md mt-1" />
+              ) : (
+                <h3 className="font-display text-3xl font-extrabold text-foreground">₹{stats.totalOverdue.toLocaleString()}</h3>
+              )}
             </div>
           </div>
           <div className="h-12 w-12 rounded-2xl bg-red-500/20 flex items-center justify-center text-red-600">
@@ -402,7 +415,34 @@ const AdminPayments = () => {
           </div>
         </div>
 
-        {filteredPayments.length === 0 ? (
+        {isPaymentsLoading ? (
+          <div className="py-6 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-border/40">
+              <div className="flex items-center gap-2.5">
+                <Loader2 className="h-4 w-4 animate-spin text-[#ea580c]" />
+                <span className="text-xs font-semibold text-stone-600">Loading fee records & invoices...</span>
+              </div>
+            </div>
+            <div className="divide-y divide-border/30">
+              {[1, 2, 3, 4, 5].map((i) => (
+                <div key={i} className="py-3.5 flex items-center justify-between gap-4 animate-pulse">
+                  <div className="space-y-2 flex-1 min-w-0">
+                    <div className="h-4 w-44 bg-stone-200/80 rounded" />
+                    <div className="h-3 w-60 bg-stone-100 rounded" />
+                  </div>
+                  <div className="h-4 w-16 bg-stone-100 rounded hidden sm:block" />
+                  <div className="h-4 w-20 bg-stone-200/80 rounded" />
+                  <div className="h-4 w-24 bg-stone-100 rounded hidden md:block" />
+                  <div className="h-6 w-16 bg-stone-200/60 rounded-full" />
+                  <div className="flex items-center gap-1.5 justify-end">
+                    <div className="h-8 w-8 bg-stone-100 rounded-lg" />
+                    <div className="h-8 w-8 bg-stone-100 rounded-lg" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : filteredPayments.length === 0 ? (
           <div className="py-16 text-center">
             <div className="h-14 w-14 rounded-2xl bg-primary-soft flex items-center justify-center mx-auto mb-3">
               <CreditCard className="h-6 w-6 text-primary" />
