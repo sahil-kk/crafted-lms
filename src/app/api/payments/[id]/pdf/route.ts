@@ -58,7 +58,7 @@ export async function GET(
       receiptNumber = `CRF-${studentCode}-01`;
     }
 
-    const pdfBuffer = generateFeeReceiptPdf({
+    const pdfBuffer = await generateFeeReceiptPdf({
       studentName,
       studentId: studentCode,
       amount: payment.amount,

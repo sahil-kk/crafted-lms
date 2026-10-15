@@ -237,7 +237,7 @@ export function generateReceiptEmailHtml(details: FeeReceiptEmailDetails): strin
         <table class="header-table">
           <tr>
             <td style="width: 33%; vertical-align: middle; text-align: left;">
-              <img src="https://craftedlearn.com/craftedlonglogo-with-tm.svg" alt="Crafted Learning Hub" style="height: 38px; max-width: 160px; display: block;" />
+              <img src="https://craftedlearn.com/craftedlonglogo-with-tm.png" alt="Crafted Learning Hub" style="height: 38px; max-width: 160px; display: block;" />
             </td>
             <td style="width: 34%; vertical-align: middle; text-align: center;">
               <span style="font-size: 13px; font-weight: 800; letter-spacing: 0.22em; color: #292524; text-transform: uppercase; display: block;">
@@ -428,7 +428,7 @@ export async function sendFeeReceiptEmail(details: FeeReceiptEmailDetails): Prom
     // Generate official PDF receipt attachment
     let attachments: any[] | undefined;
     try {
-      const pdfBuffer = generateFeeReceiptPdf(details);
+      const pdfBuffer = await generateFeeReceiptPdf(details);
       attachments = [
         {
           filename: `Crafted_Fee_Receipt_${receiptNumber}.pdf`,

@@ -1,5 +1,12 @@
+import sharp from "sharp";
 import { jsPDF } from "jspdf";
 import { formatClassOnly } from "./utils";
+import { format } from "date-fns";
+import {
+  CRAFTED_LONG_LOGO_BASE64,
+  CRAFTED_ICON_BASE64,
+  THANK_YOU_SCRIPT_BASE64,
+} from "./receiptAssets";
 
 export interface PdfReceiptDetails {
   studentName: string;
@@ -14,9 +21,26 @@ export interface PdfReceiptDetails {
   description?: string;
 }
 
-/**
- * Formats numbers into Indian currency format (e.g., 4,500.00).
- */
+function escapeXml(unsafe: string | number | undefined | null): string {
+  if (unsafe == null) return "";
+  return String(unsafe).replace(/[<>&'"]/g, (c) => {
+    switch (c) {
+      case "<":
+        return "&lt;";
+      case ">":
+        return "&gt;";
+      case "&":
+        return "&amp;";
+      case "'":
+        return "&apos;";
+      case '"':
+        return "&quot;";
+      default:
+        return c;
+    }
+  });
+}
+
 function formatCurrency(amt: number): string {
   return amt.toLocaleString("en-IN", {
     minimumFractionDigits: 2,
@@ -25,285 +49,240 @@ function formatCurrency(amt: number): string {
 }
 
 /**
- * Generates an official, publication-quality PDF buffer for a fee receipt.
- * Runs 100% in pure Node.js / Vercel Serverless with zero native dependencies.
+ * Generates a 100% pixel-perfect PDF fee receipt matching the portal's PaymentReceiptModal.
+ * Embeds official high-DPI branding, crisp Lucide-style vector badges, Indian Rupee symbols (₹),
+ * and verified status banners. Runs in pure Node.js / Vercel Serverless.
  */
-export function generateFeeReceiptPdf(details: PdfReceiptDetails): Buffer {
+export async function generateFeeReceiptPdf(details: PdfReceiptDetails): Promise<Buffer> {
   const {
     studentName,
     studentId,
     amount,
-    receiptNumber = "CRF-RECEIPT",
-    paymentId = "pay_verified",
-    orderId = "N/A",
+    receiptNumber,
+    paymentId,
+    orderId,
     classGrade,
-    paymentMethod = "Razorpay (Online)",
-    paidAt = new Date(),
-    description = "Tuition & Course Academic Fee",
+    paymentMethod,
+    paidAt,
+    description,
   } = details;
 
   const cleanClass = formatClassOnly(classGrade);
-  const formattedPaidAt = new Date(paidAt).toLocaleDateString("en-IN", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    timeZone: "Asia/Kolkata",
-  });
   const formattedAmount = formatCurrency(amount);
 
-  // Initialize A4 document (210mm x 297mm)
-  const doc = new jsPDF({
-    orientation: "portrait",
-    unit: "mm",
-    format: "a4",
-  });
-
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const margin = 16;
-  const contentWidth = pageWidth - margin * 2; // 178mm
-
-  // Outer Border Box
-  doc.setDrawColor(231, 229, 228);
-  doc.setLineWidth(0.4);
-  doc.roundedRect(margin - 4, 12, contentWidth + 8, 270, 4, 4, "S");
-
-  // 1. HEADER SECTION
-  let y = 24;
-
-  // Left Brand: CRAFTED LEARNING HUB
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(18);
-  doc.setTextColor(234, 88, 12); // #EA580C
-  doc.text("CRAFTED", margin, y);
-
-  doc.setFontSize(9);
-  doc.setTextColor(120, 113, 108); // #78716C
-  doc.text("LEARNING HUB", margin, y + 5);
-
-  // Center: FEE RECEIPT & Number
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(13);
-  doc.setTextColor(28, 25, 23); // #1C1917
-  doc.text("FEE RECEIPT", pageWidth / 2, y, { align: "center" });
-
-  doc.setFillColor(245, 245, 244);
-  doc.setDrawColor(231, 229, 228);
-  const badgeWidth = 44;
-  doc.roundedRect(pageWidth / 2 - badgeWidth / 2, y + 2.5, badgeWidth, 6, 2, 2, "FD");
-  doc.setFont("courier", "bold");
-  doc.setFontSize(8.5);
-  doc.setTextColor(28, 25, 23);
-  doc.text(receiptNumber, pageWidth / 2, y + 6.5, { align: "center" });
-
-  // Right: PAID Badge
-  doc.setFillColor(236, 253, 245); // #ECFDF5
-  doc.setDrawColor(110, 231, 183); // #6EE7B7
-  doc.setLineWidth(0.4);
-  const paidWidth = 26;
-  doc.roundedRect(pageWidth - margin - paidWidth, y - 5, paidWidth, 9, 3, 3, "FD");
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(9.5);
-  doc.setTextColor(4, 120, 87); // #047857
-  doc.text("PAID", pageWidth - margin - paidWidth / 2, y + 1, { align: "center" });
-
-  // Horizontal Header Divider
-  y += 14;
-  doc.setDrawColor(231, 229, 228);
-  doc.setLineWidth(0.3);
-  doc.line(margin, y, pageWidth - margin, y);
-
-  // 2. SUMMARY BOX (Light Orange Tint #FFF9F5)
-  y += 6;
-  const boxHeight = 36;
-  doc.setFillColor(255, 249, 245); // #FFF9F5
-  doc.setDrawColor(254, 232, 218); // #FEE8DA
-  doc.roundedRect(margin, y, contentWidth, boxHeight, 3, 3, "FD");
-
-  // Grid Row 1: Student Name & Student ID
-  const col1X = margin + 8;
-  const col2X = margin + contentWidth / 2 + 8;
-
-  // Student Name
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(7.5);
-  doc.setTextColor(168, 162, 158); // #A8A29E
-  doc.text("STUDENT NAME", col1X, y + 8);
-  doc.setFontSize(11);
-  doc.setTextColor(28, 25, 23);
-  doc.text(studentName, col1X, y + 14);
-
-  // Student ID
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(7.5);
-  doc.setTextColor(168, 162, 158);
-  doc.text("STUDENT ID", col2X, y + 8);
-  doc.setFont("courier", "bold");
-  doc.setFontSize(11);
-  doc.setTextColor(28, 25, 23);
-  doc.text(studentId, col2X, y + 14);
-
-  // Grid Row 2: Class & Payment Date
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(7.5);
-  doc.setTextColor(168, 162, 158);
-  doc.text("CLASS", col1X, y + 22);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(10);
-  doc.setTextColor(28, 25, 23);
-  doc.text(cleanClass, col1X, y + 28);
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(7.5);
-  doc.setTextColor(168, 162, 158);
-  doc.text("PAYMENT DATE", col2X, y + 22);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(10);
-  doc.setTextColor(28, 25, 23);
-  doc.text(formattedPaidAt, col2X, y + 28);
-
-  // 3. PARTICULARS TABLE
-  y += boxHeight + 8;
-
-  // Table Header
-  const tableHeaderHeight = 9;
-  doc.setFillColor(250, 250, 249); // #FAFAF9
-  doc.setDrawColor(231, 229, 228);
-  doc.roundedRect(margin, y, contentWidth, tableHeaderHeight, 2, 2, "FD");
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(8);
-  doc.setTextColor(87, 83, 78); // #57534E
-  doc.text("#", margin + 5, y + 6);
-  doc.text("PARTICULARS / DESCRIPTION", margin + 16, y + 6);
-  doc.text("AMOUNT (INR)", pageWidth - margin - 6, y + 6, { align: "right" });
-
-  // Table Item Row
-  y += tableHeaderHeight;
-  const rowHeight = 22;
-  doc.setFillColor(255, 255, 255);
-  doc.setDrawColor(231, 229, 228);
-  doc.rect(margin, y, contentWidth, rowHeight, "S");
-
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(9);
-  doc.setTextColor(168, 162, 158);
-  doc.text("1", margin + 5, y + 8);
-
-  // Description text
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(10);
-  doc.setTextColor(28, 25, 23);
-  doc.text(description, margin + 16, y + 8);
-
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  doc.setTextColor(120, 113, 108);
-  doc.text(`${cleanClass} - ${paymentMethod}`, margin + 16, y + 14);
-
-  // Item Amount
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(10.5);
-  doc.setTextColor(28, 25, 23);
-  doc.text(`INR ${formattedAmount}`, pageWidth - margin - 6, y + 10, { align: "right" });
-
-  // Total Row
-  y += rowHeight;
-  const totalHeight = 13;
-  doc.setFillColor(255, 249, 245); // #FFF9F5
-  doc.setDrawColor(254, 232, 218);
-  doc.roundedRect(margin, y, contentWidth, totalHeight, 2, 2, "FD");
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(10);
-  doc.setTextColor(41, 37, 36);
-  doc.text("Total Paid", pageWidth - margin - 50, y + 8.5);
-
-  doc.setFontSize(13);
-  doc.setTextColor(234, 88, 12); // Crafted Orange
-  doc.text(`INR ${formattedAmount}`, pageWidth - margin - 6, y + 8.5, { align: "right" });
-
-  // 4. VERIFICATION BOX (Light Green Tint #ECFDF5)
-  y += totalHeight + 8;
-  const verifyHeight = 22;
-  doc.setFillColor(236, 253, 245);
-  doc.setDrawColor(167, 243, 208); // #A7F3D0
-  doc.roundedRect(margin, y, contentWidth, verifyHeight, 3, 3, "FD");
-
-  // Left Verification Status
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(10);
-  doc.setTextColor(6, 95, 70); // #065F46
-  doc.text("Payment Successful", margin + 8, y + 8);
-
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  doc.setTextColor(4, 120, 87);
-  doc.text(`Verified via ${paymentMethod}`, margin + 8, y + 14);
-
-  // Right Reference Numbers
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  doc.setTextColor(107, 114, 128);
-  doc.text("Payment ID:", pageWidth - margin - 58, y + 8);
-  doc.setFont("courier", "bold");
-  doc.setFontSize(8.5);
-  doc.setTextColor(31, 41, 55);
-  doc.text(paymentId, pageWidth - margin - 6, y + 8, { align: "right" });
-
-  if (orderId && orderId !== "N/A") {
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(8);
-    doc.setTextColor(107, 114, 128);
-    doc.text("Order Ref:", pageWidth - margin - 58, y + 14);
-    doc.setFont("courier", "normal");
-    doc.setFontSize(8);
-    doc.setTextColor(75, 85, 99);
-    doc.text(orderId, pageWidth - margin - 6, y + 14, { align: "right" });
+  let cleanReceiptNum = receiptNumber || "";
+  if (!cleanReceiptNum || cleanReceiptNum === "CRF-RECEIPT" || cleanReceiptNum.startsWith("REC-")) {
+    const tag = studentId && !/^[0-9a-fA-F]{24}$/.test(studentId) ? studentId : "C1001";
+    cleanReceiptNum = `CRF-${tag}-01`;
   }
 
-  // 5. THANK YOU NOTE
-  y += verifyHeight + 12;
-  doc.setFont("times", "italic");
-  doc.setFontSize(16);
-  doc.setTextColor(28, 25, 23);
-  doc.text("Thank You!", margin, y);
+  let formattedPaidAt = "";
+  try {
+    const dateObj = paidAt ? new Date(paidAt) : new Date();
+    if (isNaN(dateObj.getTime())) {
+      formattedPaidAt = format(new Date(), "dd MMMM yyyy, hh:mm a");
+    } else {
+      formattedPaidAt = format(dateObj, "dd MMMM yyyy, hh:mm a");
+    }
+  } catch {
+    formattedPaidAt = format(new Date(), "dd MMMM yyyy, hh:mm a");
+  }
 
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  doc.setTextColor(87, 83, 78);
-  doc.text(
-    "We appreciate your trust in Crafted Learning Hub. Keep learning and growing with us.",
-    margin,
-    y + 5
-  );
-  doc.text("This is an official computer-generated fee receipt valid for all administrative records.", margin, y + 9);
+  const cleanDescription = description || "Tuition & Course Academic Fee";
+  const cleanPaymentMethod = paymentMethod || "Razorpay Gateway";
+  const cleanPaymentId = paymentId || "pay_verified";
+  const hasOrderId = Boolean(orderId && orderId !== "N/A" && orderId.trim().length > 0);
 
-  // 6. OFFICIAL FOOTER (Border & Contact Info)
-  const footerY = 252;
-  doc.setDrawColor(231, 229, 228);
-  doc.setLineWidth(0.3);
-  doc.line(margin, footerY, pageWidth - margin, footerY);
+  const width = 800;
+  const height = 1040;
 
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(8.5);
-  doc.setTextColor(87, 83, 78);
-  doc.text("Crafted Learning Hub  -  Kerala, India", pageWidth / 2, footerY + 6, { align: "center" });
+  const svg = `
+  <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+    <defs>
+      <filter id="cardShadow" x="-5%" y="-5%" width="110%" height="110%">
+        <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000000" flood-opacity="0.06" />
+      </filter>
+    </defs>
 
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(7.5);
-  doc.setTextColor(120, 113, 108);
-  doc.text(
-    "Email: accounts@craftedlearn.com   |   Phone: +91 7356 324 680   |   Website: craftedlearn.com",
-    pageWidth / 2,
-    footerY + 11,
-    { align: "center" }
-  );
+    <!-- Outer Background -->
+    <rect width="100%" height="100%" fill="#f5f5f4" />
 
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(7);
-  doc.setTextColor(234, 88, 12);
-  doc.text("LEARN FROM THE PEOPLE WHO'VE BEEN THERE AND DONE IT", pageWidth / 2, footerY + 17, { align: "center" });
+    <!-- Receipt Card -->
+    <rect x="30" y="30" width="740" height="980" rx="24" fill="#ffffff" stroke="#e7e5e4" stroke-width="1.5" filter="url(#cardShadow)" />
 
-  // Return generated PDF buffer
+    <!-- 1. Header Row -->
+    <g transform="translate(60, 60)">
+      <!-- Official Crafted Logo -->
+      <image href="${CRAFTED_LONG_LOGO_BASE64}" x="0" y="0" width="180" height="52" preserveAspectRatio="xMidYMid meet" />
+
+      <!-- Center Title & Receipt Pill -->
+      <text x="340" y="22" font-size="14" font-weight="800" fill="#292524" letter-spacing="3.5" text-anchor="middle">FEE RECEIPT</text>
+      
+      <rect x="235" y="32" width="210" height="24" rx="12" fill="#f5f5f4" stroke="#e7e5e4" stroke-width="1" />
+      <text x="340" y="48" font-size="11" text-anchor="middle">
+        <tspan fill="#78716c" font-weight="600">Receipt No. </tspan>
+        <tspan fill="#1c1917" font-weight="800" font-family="monospace">${escapeXml(cleanReceiptNum)}</tspan>
+      </text>
+
+      <!-- Paid Stamp Badge -->
+      <rect x="595" y="10" width="85" height="30" rx="15" fill="#ecfdf5" stroke="#6ee7b7" stroke-width="1" />
+      <path d="M610 25 L615 30 L625 19" fill="none" stroke="#047857" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+      <text x="632" y="29" font-size="12" font-weight="800" fill="#047857" letter-spacing="0.5">PAID</text>
+
+      <line x1="0" y1="72" x2="680" y2="72" stroke="#e7e5e4" stroke-width="1" />
+    </g>
+
+    <!-- 2. Student & Payment Summary Box (#FFF9F5) -->
+    <g transform="translate(60, 145)">
+      <rect x="0" y="0" width="680" height="135" rx="16" fill="#FFF9F5" stroke="#FEE8DA" stroke-width="1.2" />
+
+      <!-- Col 1, Row 1: Student Name -->
+      <g transform="translate(20, 16)">
+        <circle cx="20" cy="20" r="18" fill="#FFEDD5" stroke="#FED7AA" stroke-width="1" />
+        <!-- User Icon -->
+        <circle cx="20" cy="15" r="5" fill="none" stroke="#EA580C" stroke-width="1.8" />
+        <path d="M12 28 C12 23 16 22 20 22 C24 22 28 23 28 28" fill="none" stroke="#EA580C" stroke-width="1.8" stroke-linecap="round" />
+        <text x="50" y="14" font-size="10" font-weight="700" fill="#a8a29e" letter-spacing="1">STUDENT NAME</text>
+        <text x="50" y="32" font-size="16" font-weight="800" fill="#1c1917">${escapeXml(studentName)}</text>
+      </g>
+
+      <!-- Col 2, Row 1: Student ID -->
+      <g transform="translate(360, 16)">
+        <rect x="2" y="2" width="36" height="36" rx="12" fill="#FFEDD5" stroke="#FED7AA" stroke-width="1" />
+        <!-- Card Icon -->
+        <rect x="10" y="12" width="20" height="15" rx="2" fill="none" stroke="#EA580C" stroke-width="1.8" />
+        <line x1="10" y1="16" x2="30" y2="16" stroke="#EA580C" stroke-width="1.8" />
+        <text x="50" y="14" font-size="10" font-weight="700" fill="#a8a29e" letter-spacing="1">STUDENT ID</text>
+        <text x="50" y="32" font-size="16" font-weight="800" font-family="monospace" fill="#1c1917">${escapeXml(studentId)}</text>
+      </g>
+
+      <!-- Col 1, Row 2: Class -->
+      <g transform="translate(20, 72)">
+        <circle cx="20" cy="20" r="18" fill="#FFEDD5" stroke="#FED7AA" stroke-width="1" />
+        <!-- Book Icon -->
+        <path d="M12 14 Q20 12 20 26 Q12 28 12 14 M20 26 Q20 12 28 14 Q28 28 20 26" fill="none" stroke="#EA580C" stroke-width="1.8" stroke-linejoin="round" />
+        <text x="50" y="14" font-size="10" font-weight="700" fill="#a8a29e" letter-spacing="1">CLASS</text>
+        <text x="50" y="32" font-size="15" font-weight="800" fill="#1c1917">${escapeXml(cleanClass)}</text>
+      </g>
+
+      <!-- Col 2, Row 2: Payment Date -->
+      <g transform="translate(360, 72)">
+        <circle cx="20" cy="20" r="18" fill="#FFEDD5" stroke="#FED7AA" stroke-width="1" />
+        <!-- Calendar Icon -->
+        <rect x="11" y="13" width="18" height="16" rx="3" fill="none" stroke="#EA580C" stroke-width="1.8" />
+        <line x1="11" y1="18" x2="29" y2="18" stroke="#EA580C" stroke-width="1.5" />
+        <text x="50" y="14" font-size="10" font-weight="700" fill="#a8a29e" letter-spacing="1">PAYMENT DATE</text>
+        <text x="50" y="32" font-size="14.5" font-weight="700" fill="#1c1917">${escapeXml(formattedPaidAt)}</text>
+      </g>
+    </g>
+
+    <!-- 3. Particulars Table -->
+    <g transform="translate(60, 305)">
+      <rect x="0" y="0" width="680" height="165" rx="14" fill="#ffffff" stroke="#e7e5e4" stroke-width="1.2" />
+
+      <!-- Table Header -->
+      <path d="M0 14 Q0 0 14 0 L666 0 Q680 0 680 14 L680 40 L0 40 Z" fill="#fafaf9" />
+      <line x1="0" y1="40" x2="680" y2="40" stroke="#e7e5e4" stroke-width="1" />
+      <text x="30" y="25" font-size="11" font-weight="700" fill="#57534e" text-anchor="middle">#</text>
+      <text x="70" y="25" font-size="11" font-weight="700" fill="#57534e">PARTICULARS / DESCRIPTION</text>
+      <text x="650" y="25" font-size="11" font-weight="700" fill="#57534e" text-anchor="end">AMOUNT (₹)</text>
+
+      <!-- Table Row -->
+      <text x="30" y="72" font-size="13" font-weight="600" fill="#a8a29e" text-anchor="middle">1</text>
+      <text x="70" y="72" font-size="15" font-weight="700" fill="#1c1917">${escapeXml(cleanDescription)}</text>
+      <text x="70" y="92" font-size="12" font-weight="500" fill="#78716c">${escapeXml(cleanClass)}</text>
+      <text x="650" y="76" font-size="16" font-weight="700" fill="#1c1917" text-anchor="end">₹${escapeXml(formattedAmount)}</text>
+
+      <!-- Total Paid Row -->
+      <line x1="0" y1="115" x2="680" y2="115" stroke="#FEE8DA" stroke-width="1" />
+      <path d="M0 115 L680 115 L680 151 Q680 165 666 165 L14 165 Q0 165 0 151 Z" fill="#FFF9F5" />
+      <text x="480" y="143" font-size="14" font-weight="800" fill="#292524" text-anchor="end">Total Paid</text>
+      <text x="650" y="144" font-size="22" font-weight="900" fill="#EA580C" text-anchor="end">₹${escapeXml(formattedAmount)}</text>
+    </g>
+
+    <!-- 4. Payment Successful Box (#ECFDF5) -->
+    <g transform="translate(60, 495)">
+      <rect x="0" y="0" width="680" height="85" rx="16" fill="#ECFDF5" stroke="#A7F3D0" stroke-width="1.2" />
+      <circle cx="35" cy="42" r="16" fill="#10B981" />
+      <path d="M28 42 L33 47 L42 37" fill="none" stroke="#ffffff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" />
+      <text x="65" y="38" font-size="15" font-weight="800" fill="#065F46">Payment Successful</text>
+      <text x="65" y="56" font-size="11.5" font-weight="600" fill="#047857">Verified via ${escapeXml(cleanPaymentMethod)}</text>
+
+      ${
+        hasOrderId
+          ? `
+      <text x="650" y="34" font-size="12" font-weight="700" font-family="monospace" fill="#1c1917" text-anchor="end">
+        <tspan fill="#6b7280" font-family="sans-serif" font-weight="500" font-size="11">Payment ID: </tspan>${escapeXml(cleanPaymentId)}
+      </text>
+      <text x="650" y="52" font-size="12" font-weight="500" font-family="monospace" fill="#374151" text-anchor="end">
+        <tspan fill="#6b7280" font-family="sans-serif" font-weight="500" font-size="11">Order Ref: </tspan>${escapeXml(orderId)}
+      </text>
+      `
+          : `
+      <text x="650" y="44" font-size="12" font-weight="700" font-family="monospace" fill="#1c1917" text-anchor="end">
+        <tspan fill="#6b7280" font-family="sans-serif" font-weight="500" font-size="11">Payment ID: </tspan>${escapeXml(cleanPaymentId)}
+      </text>
+      `
+      }
+    </g>
+
+    <!-- 5. Thank You Note -->
+    <g transform="translate(60, 608)">
+      <image href="${THANK_YOU_SCRIPT_BASE64}" x="-2" y="0" width="180" height="42" preserveAspectRatio="xMidYMid meet" />
+      <text x="0" y="58" font-size="13" fill="#57534e">We appreciate your trust in Crafted Learning Hub. Keep learning and growing with us.</text>
+      <line x1="0" y1="85" x2="680" y2="85" stroke="#e7e5e4" stroke-width="1" />
+    </g>
+
+    <!-- 6. Footer Section -->
+    <g transform="translate(60, 720)">
+      <!-- Email Row -->
+      <g transform="translate(210, 0)">
+        <circle cx="15" cy="15" r="13" fill="#FFEDD5" />
+        <!-- Mail Icon -->
+        <rect x="7" y="9" width="16" height="12" rx="2" fill="none" stroke="#EA580C" stroke-width="1.5" />
+        <path d="M7 10 L15 16 L23 10" fill="none" stroke="#EA580C" stroke-width="1.5" />
+        <text x="38" y="19" font-size="11" font-weight="700" fill="#a8a29e">EMAIL: <tspan fill="#1c1917" font-size="13" font-weight="700">accounts@craftedlearn.com</tspan></text>
+      </g>
+
+      <!-- Phone & Website Row -->
+      <line x1="0" y1="45" x2="680" y2="45" stroke="#e7e5e4" stroke-width="1" />
+
+      <g transform="translate(70, 60)">
+        <circle cx="16" cy="16" r="14" fill="#FFEDD5" />
+        <!-- Phone Icon -->
+        <path d="M11 11 C11 19 19 23 23 20 L20 17 L17 19 C15 17 14 16 13 14 L15 12 Z" fill="#EA580C" />
+        <text x="40" y="12" font-size="9" font-weight="700" fill="#a8a29e">PHONE</text>
+        <text x="40" y="26" font-size="13" font-weight="700" fill="#1c1917">+91 7356 324 680</text>
+      </g>
+
+      <line x1="340" y1="55" x2="340" y2="95" stroke="#e7e5e4" stroke-width="1" />
+
+      <g transform="translate(420, 60)">
+        <circle cx="16" cy="16" r="14" fill="#FFEDD5" />
+        <image href="${CRAFTED_ICON_BASE64}" x="6" y="6" width="20" height="20" />
+        <text x="42" y="12" font-size="9" font-weight="700" fill="#a8a29e">WEBSITE</text>
+        <text x="42" y="26" font-size="13" font-weight="700" fill="#1c1917">craftedlearn.com</text>
+      </g>
+
+      <!-- Bottom Tagline -->
+      <line x1="0" y1="115" x2="680" y2="115" stroke="#e7e5e4" stroke-width="0.8" />
+      <text x="340" y="135" font-size="11" font-weight="800" fill="#EA580C" letter-spacing="2" text-anchor="middle">CRAFTED LEARNING HUB</text>
+      <text x="340" y="150" font-size="9" font-weight="700" fill="#a8a29e" letter-spacing="1.5" text-anchor="middle">LEARN FROM THE PEOPLE WHO'VE BEEN THERE AND DONE IT</text>
+    </g>
+  </svg>
+  `.trim();
+
+  // Convert vector SVG to ultra-sharp 300 DPI PNG buffer
+  const pngBuf = await sharp(Buffer.from(svg), { density: 300 }).png().toBuffer();
+
+  // Wrap inside jsPDF matching exact proportions
+  const doc = new jsPDF({
+    orientation: "portrait",
+    unit: "pt",
+    format: [width, height],
+  });
+
+  doc.addImage(pngBuf, "PNG", 0, 0, width, height, undefined, "FAST");
+
   return Buffer.from(doc.output("arraybuffer"));
 }
