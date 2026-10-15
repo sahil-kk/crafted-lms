@@ -1,11 +1,13 @@
 import sharp from "sharp";
 import { jsPDF } from "jspdf";
+import { parse, Font, PathCommand } from "opentype.js";
 import { formatClassOnly } from "./utils";
 import { format } from "date-fns";
 import {
   CRAFTED_LONG_LOGO_BASE64,
   CRAFTED_ICON_BASE64,
   THANK_YOU_SCRIPT_BASE64,
+  GEIST_FONT_BASE64,
 } from "./receiptAssets";
 
 export interface PdfReceiptDetails {
@@ -21,24 +23,132 @@ export interface PdfReceiptDetails {
   description?: string;
 }
 
-function escapeXml(unsafe: string | number | undefined | null): string {
-  if (unsafe == null) return "";
-  return String(unsafe).replace(/[<>&'"]/g, (c) => {
-    switch (c) {
-      case "<":
-        return "&lt;";
-      case ">":
-        return "&gt;";
-      case "&":
-        return "&amp;";
-      case "'":
-        return "&apos;";
-      case '"':
-        return "&quot;";
-      default:
-        return c;
+let cachedFont: Font | null = null;
+
+function getReceiptFont(): Font {
+  if (cachedFont) return cachedFont;
+  const buf = Buffer.from(GEIST_FONT_BASE64, "base64");
+  const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+  cachedFont = parse(ab);
+  return cachedFont;
+}
+
+function commandsToPathData(commands: PathCommand[]): string {
+  let d = "";
+  for (let i = 0; i < commands.length; i++) {
+    const cmd = commands[i];
+    if (cmd.type === "M") {
+      d += `M${cmd.x.toFixed(2)} ${cmd.y.toFixed(2)}`;
+    } else if (cmd.type === "L") {
+      d += `L${cmd.x.toFixed(2)} ${cmd.y.toFixed(2)}`;
+    } else if (cmd.type === "C") {
+      d += `C${cmd.x1.toFixed(2)} ${cmd.y1.toFixed(2)} ${cmd.x2.toFixed(2)} ${cmd.y2.toFixed(2)} ${cmd.x.toFixed(2)} ${cmd.y.toFixed(2)}`;
+    } else if (cmd.type === "Q") {
+      d += `Q${cmd.x1.toFixed(2)} ${cmd.y1.toFixed(2)} ${cmd.x.toFixed(2)} ${cmd.y.toFixed(2)}`;
+    } else if (cmd.type === "Z") {
+      d += "Z";
     }
-  });
+  }
+  return d;
+}
+
+interface RenderTextOptions {
+  color?: string;
+  weight?: "normal" | "bold" | "black";
+  align?: "left" | "center" | "right";
+  letterSpacing?: number;
+}
+
+function renderText(
+  font: Font,
+  text: string | number | undefined | null,
+  x: number,
+  y: number,
+  size: number,
+  options: RenderTextOptions = {}
+): string {
+  if (text == null || text === "") return "";
+  const str = String(text);
+  const color = options.color || "#1c1917";
+  const weight = options.weight || "normal";
+  const align = options.align || "left";
+  const letterSpacing = options.letterSpacing || 0;
+
+  const width = font.getAdvanceWidth(str, size, letterSpacing ? { letterSpacing } : undefined);
+
+  let startX = x;
+  if (align === "center") {
+    startX = x - width / 2;
+  } else if (align === "right") {
+    startX = x - width;
+  }
+
+  const p = font.getPath(str, startX, y, size, letterSpacing ? { letterSpacing } : undefined);
+  const d = commandsToPathData(p.commands);
+
+  let strokeAttr = "";
+  if (weight === "bold") {
+    strokeAttr = `stroke="${color}" stroke-width="${(size * 0.038).toFixed(2)}" stroke-linejoin="round"`;
+  } else if (weight === "black") {
+    strokeAttr = `stroke="${color}" stroke-width="${(size * 0.065).toFixed(2)}" stroke-linejoin="round"`;
+  }
+
+  return `<path d="${d}" fill="${color}" ${strokeAttr} />`;
+}
+
+interface InlineSegment {
+  text: string | number | undefined | null;
+  color?: string;
+  size: number;
+  weight?: "normal" | "bold" | "black";
+  letterSpacing?: number;
+}
+
+function renderInlineTexts(
+  font: Font,
+  segments: InlineSegment[],
+  x: number,
+  y: number,
+  options: { align?: "left" | "center" | "right" } = {}
+): string {
+  const align = options.align || "left";
+  let totalWidth = 0;
+  const segWidths: number[] = [];
+
+  for (const seg of segments) {
+    if (!seg.text) {
+      segWidths.push(0);
+      continue;
+    }
+    const w = font.getAdvanceWidth(
+      String(seg.text),
+      seg.size,
+      seg.letterSpacing ? { letterSpacing: seg.letterSpacing } : undefined
+    );
+    segWidths.push(w);
+    totalWidth += w;
+  }
+
+  let currX = x;
+  if (align === "right") {
+    currX = x - totalWidth;
+  } else if (align === "center") {
+    currX = x - totalWidth / 2;
+  }
+
+  let out = "";
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+    if (!seg.text) continue;
+    out += renderText(font, seg.text, currX, y, seg.size, {
+      color: seg.color,
+      weight: seg.weight,
+      letterSpacing: seg.letterSpacing,
+      align: "left",
+    });
+    currX += segWidths[i];
+  }
+  return out;
 }
 
 function formatCurrency(amt: number): string {
@@ -50,8 +160,8 @@ function formatCurrency(amt: number): string {
 
 /**
  * Generates a 100% pixel-perfect PDF fee receipt matching the portal's PaymentReceiptModal.
- * Embeds official high-DPI branding, crisp Lucide-style vector badges, Indian Rupee symbols (₹),
- * and verified status banners. Runs in pure Node.js / Vercel Serverless.
+ * Renders all text as pure vector SVG paths using opentype.js and Geist font, eliminating
+ * all system font/fontconfig dependencies and preventing tofu boxes on Linux/Vercel serverless.
  */
 export async function generateFeeReceiptPdf(details: PdfReceiptDetails): Promise<Buffer> {
   const {
@@ -67,6 +177,7 @@ export async function generateFeeReceiptPdf(details: PdfReceiptDetails): Promise
     description,
   } = details;
 
+  const font = getReceiptFont();
   const cleanClass = formatClassOnly(classGrade);
   const formattedAmount = formatCurrency(amount);
 
@@ -92,12 +203,13 @@ export async function generateFeeReceiptPdf(details: PdfReceiptDetails): Promise
   const cleanPaymentMethod = paymentMethod || "Razorpay Gateway";
   const cleanPaymentId = paymentId || "pay_verified";
   const hasOrderId = Boolean(orderId && orderId !== "N/A" && orderId.trim().length > 0);
+  const cleanOrderId = orderId || "";
 
   const width = 800;
   const height = 1040;
 
   const svg = `
-  <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+  <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <filter id="cardShadow" x="-5%" y="-5%" width="110%" height="110%">
         <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000000" flood-opacity="0.06" />
@@ -116,18 +228,18 @@ export async function generateFeeReceiptPdf(details: PdfReceiptDetails): Promise
       <image href="${CRAFTED_LONG_LOGO_BASE64}" x="0" y="0" width="180" height="52" preserveAspectRatio="xMidYMid meet" />
 
       <!-- Center Title & Receipt Pill -->
-      <text x="340" y="22" font-size="14" font-weight="800" fill="#292524" letter-spacing="3.5" text-anchor="middle">FEE RECEIPT</text>
+      ${renderText(font, "FEE RECEIPT", 340, 22, 14, { weight: "bold", align: "center", letterSpacing: 0.25 })}
       
       <rect x="235" y="32" width="210" height="24" rx="12" fill="#f5f5f4" stroke="#e7e5e4" stroke-width="1" />
-      <text x="340" y="48" font-size="11" text-anchor="middle">
-        <tspan fill="#78716c" font-weight="600">Receipt No. </tspan>
-        <tspan fill="#1c1917" font-weight="800" font-family="monospace">${escapeXml(cleanReceiptNum)}</tspan>
-      </text>
+      ${renderInlineTexts(font, [
+        { text: "Receipt No. ", color: "#78716c", size: 11, weight: "normal" },
+        { text: cleanReceiptNum, color: "#1c1917", size: 11.5, weight: "bold" }
+      ], 340, 48, { align: "center" })}
 
       <!-- Paid Stamp Badge -->
       <rect x="595" y="10" width="85" height="30" rx="15" fill="#ecfdf5" stroke="#6ee7b7" stroke-width="1" />
       <path d="M610 25 L615 30 L625 19" fill="none" stroke="#047857" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
-      <text x="632" y="29" font-size="12" font-weight="800" fill="#047857" letter-spacing="0.5">PAID</text>
+      ${renderText(font, "PAID", 632, 29, 12, { weight: "bold", color: "#047857" })}
 
       <line x1="0" y1="72" x2="680" y2="72" stroke="#e7e5e4" stroke-width="1" />
     </g>
@@ -142,8 +254,8 @@ export async function generateFeeReceiptPdf(details: PdfReceiptDetails): Promise
         <!-- User Icon -->
         <circle cx="20" cy="15" r="5" fill="none" stroke="#EA580C" stroke-width="1.8" />
         <path d="M12 28 C12 23 16 22 20 22 C24 22 28 23 28 28" fill="none" stroke="#EA580C" stroke-width="1.8" stroke-linecap="round" />
-        <text x="50" y="14" font-size="10" font-weight="700" fill="#a8a29e" letter-spacing="1">STUDENT NAME</text>
-        <text x="50" y="32" font-size="16" font-weight="800" fill="#1c1917">${escapeXml(studentName)}</text>
+        ${renderText(font, "STUDENT NAME", 50, 14, 10, { weight: "bold", color: "#a8a29e", letterSpacing: 0.1 })}
+        ${renderText(font, studentName, 50, 32, 16, { weight: "bold", color: "#1c1917" })}
       </g>
 
       <!-- Col 2, Row 1: Student ID -->
@@ -152,8 +264,8 @@ export async function generateFeeReceiptPdf(details: PdfReceiptDetails): Promise
         <!-- Card Icon -->
         <rect x="10" y="12" width="20" height="15" rx="2" fill="none" stroke="#EA580C" stroke-width="1.8" />
         <line x1="10" y1="16" x2="30" y2="16" stroke="#EA580C" stroke-width="1.8" />
-        <text x="50" y="14" font-size="10" font-weight="700" fill="#a8a29e" letter-spacing="1">STUDENT ID</text>
-        <text x="50" y="32" font-size="16" font-weight="800" font-family="monospace" fill="#1c1917">${escapeXml(studentId)}</text>
+        ${renderText(font, "STUDENT ID", 50, 14, 10, { weight: "bold", color: "#a8a29e", letterSpacing: 0.1 })}
+        ${renderText(font, studentId, 50, 32, 16, { weight: "bold", color: "#1c1917" })}
       </g>
 
       <!-- Col 1, Row 2: Class -->
@@ -161,8 +273,8 @@ export async function generateFeeReceiptPdf(details: PdfReceiptDetails): Promise
         <circle cx="20" cy="20" r="18" fill="#FFEDD5" stroke="#FED7AA" stroke-width="1" />
         <!-- Book Icon -->
         <path d="M12 14 Q20 12 20 26 Q12 28 12 14 M20 26 Q20 12 28 14 Q28 28 20 26" fill="none" stroke="#EA580C" stroke-width="1.8" stroke-linejoin="round" />
-        <text x="50" y="14" font-size="10" font-weight="700" fill="#a8a29e" letter-spacing="1">CLASS</text>
-        <text x="50" y="32" font-size="15" font-weight="800" fill="#1c1917">${escapeXml(cleanClass)}</text>
+        ${renderText(font, "CLASS", 50, 14, 10, { weight: "bold", color: "#a8a29e", letterSpacing: 0.1 })}
+        ${renderText(font, cleanClass, 50, 32, 15, { weight: "bold", color: "#1c1917" })}
       </g>
 
       <!-- Col 2, Row 2: Payment Date -->
@@ -171,8 +283,8 @@ export async function generateFeeReceiptPdf(details: PdfReceiptDetails): Promise
         <!-- Calendar Icon -->
         <rect x="11" y="13" width="18" height="16" rx="3" fill="none" stroke="#EA580C" stroke-width="1.8" />
         <line x1="11" y1="18" x2="29" y2="18" stroke="#EA580C" stroke-width="1.5" />
-        <text x="50" y="14" font-size="10" font-weight="700" fill="#a8a29e" letter-spacing="1">PAYMENT DATE</text>
-        <text x="50" y="32" font-size="14.5" font-weight="700" fill="#1c1917">${escapeXml(formattedPaidAt)}</text>
+        ${renderText(font, "PAYMENT DATE", 50, 14, 10, { weight: "bold", color: "#a8a29e", letterSpacing: 0.1 })}
+        ${renderText(font, formattedPaidAt, 50, 32, 14.5, { weight: "bold", color: "#1c1917" })}
       </g>
     </g>
 
@@ -183,21 +295,21 @@ export async function generateFeeReceiptPdf(details: PdfReceiptDetails): Promise
       <!-- Table Header -->
       <path d="M0 14 Q0 0 14 0 L666 0 Q680 0 680 14 L680 40 L0 40 Z" fill="#fafaf9" />
       <line x1="0" y1="40" x2="680" y2="40" stroke="#e7e5e4" stroke-width="1" />
-      <text x="30" y="25" font-size="11" font-weight="700" fill="#57534e" text-anchor="middle">#</text>
-      <text x="70" y="25" font-size="11" font-weight="700" fill="#57534e">PARTICULARS / DESCRIPTION</text>
-      <text x="650" y="25" font-size="11" font-weight="700" fill="#57534e" text-anchor="end">AMOUNT (₹)</text>
+      ${renderText(font, "#", 30, 25, 11, { weight: "bold", color: "#57534e", align: "center" })}
+      ${renderText(font, "PARTICULARS / DESCRIPTION", 70, 25, 11, { weight: "bold", color: "#57534e" })}
+      ${renderText(font, "AMOUNT (₹)", 650, 25, 11, { weight: "bold", color: "#57534e", align: "right" })}
 
       <!-- Table Row -->
-      <text x="30" y="72" font-size="13" font-weight="600" fill="#a8a29e" text-anchor="middle">1</text>
-      <text x="70" y="72" font-size="15" font-weight="700" fill="#1c1917">${escapeXml(cleanDescription)}</text>
-      <text x="70" y="92" font-size="12" font-weight="500" fill="#78716c">${escapeXml(cleanClass)}</text>
-      <text x="650" y="76" font-size="16" font-weight="700" fill="#1c1917" text-anchor="end">₹${escapeXml(formattedAmount)}</text>
+      ${renderText(font, "1", 30, 72, 13, { weight: "bold", color: "#a8a29e", align: "center" })}
+      ${renderText(font, cleanDescription, 70, 72, 15, { weight: "bold", color: "#1c1917" })}
+      ${renderText(font, cleanClass, 70, 92, 12, { color: "#78716c" })}
+      ${renderText(font, `₹${formattedAmount}`, 650, 76, 16, { weight: "bold", color: "#1c1917", align: "right" })}
 
       <!-- Total Paid Row -->
       <line x1="0" y1="115" x2="680" y2="115" stroke="#FEE8DA" stroke-width="1" />
       <path d="M0 115 L680 115 L680 151 Q680 165 666 165 L14 165 Q0 165 0 151 Z" fill="#FFF9F5" />
-      <text x="480" y="143" font-size="14" font-weight="800" fill="#292524" text-anchor="end">Total Paid</text>
-      <text x="650" y="144" font-size="22" font-weight="900" fill="#EA580C" text-anchor="end">₹${escapeXml(formattedAmount)}</text>
+      ${renderText(font, "Total Paid", 480, 143, 14, { weight: "bold", color: "#292524", align: "right" })}
+      ${renderText(font, `₹${formattedAmount}`, 650, 144, 22, { weight: "black", color: "#EA580C", align: "right" })}
     </g>
 
     <!-- 4. Payment Successful Box (#ECFDF5) -->
@@ -205,43 +317,49 @@ export async function generateFeeReceiptPdf(details: PdfReceiptDetails): Promise
       <rect x="0" y="0" width="680" height="85" rx="16" fill="#ECFDF5" stroke="#A7F3D0" stroke-width="1.2" />
       <circle cx="35" cy="42" r="16" fill="#10B981" />
       <path d="M28 42 L33 47 L42 37" fill="none" stroke="#ffffff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" />
-      <text x="65" y="38" font-size="15" font-weight="800" fill="#065F46">Payment Successful</text>
-      <text x="65" y="56" font-size="11.5" font-weight="600" fill="#047857">Verified via ${escapeXml(cleanPaymentMethod)}</text>
+      ${renderText(font, "Payment Successful", 65, 38, 15, { weight: "bold", color: "#065F46" })}
+      ${renderText(font, `Verified via ${cleanPaymentMethod}`, 65, 56, 11.5, { weight: "bold", color: "#047857" })}
 
       ${
         hasOrderId
           ? `
-      <text x="650" y="34" font-size="12" font-weight="700" font-family="monospace" fill="#1c1917" text-anchor="end">
-        <tspan fill="#6b7280" font-family="sans-serif" font-weight="500" font-size="11">Payment ID: </tspan>${escapeXml(cleanPaymentId)}
-      </text>
-      <text x="650" y="52" font-size="12" font-weight="500" font-family="monospace" fill="#374151" text-anchor="end">
-        <tspan fill="#6b7280" font-family="sans-serif" font-weight="500" font-size="11">Order Ref: </tspan>${escapeXml(orderId)}
-      </text>
-      `
+      ${renderInlineTexts(font, [
+        { text: "Payment ID: ", color: "#6b7280", size: 11, weight: "normal" },
+        { text: cleanPaymentId, color: "#1c1917", size: 12, weight: "bold" }
+      ], 650, 34, { align: "right" })}
+      ${renderInlineTexts(font, [
+        { text: "Order Ref: ", color: "#6b7280", size: 11, weight: "normal" },
+        { text: cleanOrderId, color: "#374151", size: 12, weight: "normal" }
+      ], 650, 52, { align: "right" })}
+          `
           : `
-      <text x="650" y="44" font-size="12" font-weight="700" font-family="monospace" fill="#1c1917" text-anchor="end">
-        <tspan fill="#6b7280" font-family="sans-serif" font-weight="500" font-size="11">Payment ID: </tspan>${escapeXml(cleanPaymentId)}
-      </text>
-      `
+      ${renderInlineTexts(font, [
+        { text: "Payment ID: ", color: "#6b7280", size: 11, weight: "normal" },
+        { text: cleanPaymentId, color: "#1c1917", size: 12, weight: "bold" }
+      ], 650, 44, { align: "right" })}
+          `
       }
     </g>
 
     <!-- 5. Thank You Note -->
     <g transform="translate(60, 608)">
       <image href="${THANK_YOU_SCRIPT_BASE64}" x="-2" y="0" width="180" height="42" preserveAspectRatio="xMidYMid meet" />
-      <text x="0" y="58" font-size="13" fill="#57534e">We appreciate your trust in Crafted Learning Hub. Keep learning and growing with us.</text>
+      ${renderText(font, "We appreciate your trust in Crafted Learning Hub. Keep learning and growing with us.", 0, 58, 13, { color: "#57534e" })}
       <line x1="0" y1="85" x2="680" y2="85" stroke="#e7e5e4" stroke-width="1" />
     </g>
 
     <!-- 6. Footer Section -->
     <g transform="translate(60, 720)">
       <!-- Email Row -->
-      <g transform="translate(210, 0)">
+      <g transform="translate(180, 0)">
         <circle cx="15" cy="15" r="13" fill="#FFEDD5" />
         <!-- Mail Icon -->
         <rect x="7" y="9" width="16" height="12" rx="2" fill="none" stroke="#EA580C" stroke-width="1.5" />
         <path d="M7 10 L15 16 L23 10" fill="none" stroke="#EA580C" stroke-width="1.5" />
-        <text x="38" y="19" font-size="11" font-weight="700" fill="#a8a29e">EMAIL: <tspan fill="#1c1917" font-size="13" font-weight="700">accounts@craftedlearn.com</tspan></text>
+        ${renderInlineTexts(font, [
+          { text: "EMAIL: ", color: "#a8a29e", size: 11, weight: "bold" },
+          { text: "accounts@craftedlearn.com", color: "#1c1917", size: 13, weight: "bold" }
+        ], 38, 19, { align: "left" })}
       </g>
 
       <!-- Phone & Website Row -->
@@ -251,8 +369,8 @@ export async function generateFeeReceiptPdf(details: PdfReceiptDetails): Promise
         <circle cx="16" cy="16" r="14" fill="#FFEDD5" />
         <!-- Phone Icon -->
         <path d="M11 11 C11 19 19 23 23 20 L20 17 L17 19 C15 17 14 16 13 14 L15 12 Z" fill="#EA580C" />
-        <text x="40" y="12" font-size="9" font-weight="700" fill="#a8a29e">PHONE</text>
-        <text x="40" y="26" font-size="13" font-weight="700" fill="#1c1917">+91 7356 324 680</text>
+        ${renderText(font, "PHONE", 40, 12, 9, { weight: "bold", color: "#a8a29e" })}
+        ${renderText(font, "+91 7356 324 680", 40, 26, 13, { weight: "bold", color: "#1c1917" })}
       </g>
 
       <line x1="340" y1="55" x2="340" y2="95" stroke="#e7e5e4" stroke-width="1" />
@@ -260,14 +378,14 @@ export async function generateFeeReceiptPdf(details: PdfReceiptDetails): Promise
       <g transform="translate(420, 60)">
         <circle cx="16" cy="16" r="14" fill="#FFEDD5" />
         <image href="${CRAFTED_ICON_BASE64}" x="6" y="6" width="20" height="20" />
-        <text x="42" y="12" font-size="9" font-weight="700" fill="#a8a29e">WEBSITE</text>
-        <text x="42" y="26" font-size="13" font-weight="700" fill="#1c1917">craftedlearn.com</text>
+        ${renderText(font, "WEBSITE", 42, 12, 9, { weight: "bold", color: "#a8a29e" })}
+        ${renderText(font, "craftedlearn.com", 42, 26, 13, { weight: "bold", color: "#1c1917" })}
       </g>
 
       <!-- Bottom Tagline -->
       <line x1="0" y1="115" x2="680" y2="115" stroke="#e7e5e4" stroke-width="0.8" />
-      <text x="340" y="135" font-size="11" font-weight="800" fill="#EA580C" letter-spacing="2" text-anchor="middle">CRAFTED LEARNING HUB</text>
-      <text x="340" y="150" font-size="9" font-weight="700" fill="#a8a29e" letter-spacing="1.5" text-anchor="middle">LEARN FROM THE PEOPLE WHO'VE BEEN THERE AND DONE IT</text>
+      ${renderText(font, "CRAFTED LEARNING HUB", 340, 135, 11, { weight: "bold", color: "#EA580C", align: "center", letterSpacing: 0.2 })}
+      ${renderText(font, "LEARN FROM THE PEOPLE WHO\u0027VE BEEN THERE AND DONE IT", 340, 150, 9, { weight: "bold", color: "#a8a29e", align: "center", letterSpacing: 0.15 })}
     </g>
   </svg>
   `.trim();
