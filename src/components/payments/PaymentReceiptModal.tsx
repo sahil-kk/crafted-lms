@@ -406,7 +406,7 @@ export const PaymentReceiptModal = ({ payment, open, onOpenChange }: PaymentRece
       setIsSendingEmail(true);
       const res = await apiClient<{ success: boolean; message: string; simulated?: boolean }>(
         `/payments/${id}/send-receipt`,
-        { method: "POST" }
+        { method: "POST", timeout: 60000 }
       );
       if (res.success) {
         toast.success(res.message || "Fee receipt email dispatched!");

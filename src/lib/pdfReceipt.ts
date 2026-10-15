@@ -390,8 +390,8 @@ export async function generateFeeReceiptPdf(details: PdfReceiptDetails): Promise
   </svg>
   `.trim();
 
-  // Convert vector SVG to ultra-sharp 300 DPI PNG buffer
-  const pngBuf = await sharp(Buffer.from(svg), { density: 300 }).png().toBuffer();
+  // Convert vector SVG to ultra-sharp 200 DPI PNG buffer
+  const pngBuf = await sharp(Buffer.from(svg), { density: 200 }).png().toBuffer();
 
   // Wrap inside jsPDF matching exact proportions
   const doc = new jsPDF({

@@ -21,10 +21,11 @@ export const removeAuthToken = () => {
 
 type FetchOptions = RequestInit & {
   params?: Record<string, string>;
+  timeout?: number;
 };
 
 export const apiClient = async <T>(endpoint: string, options: FetchOptions = {}): Promise<T> => {
-  const { params, headers, ...customConfig } = options;
+  const { params, headers, timeout = 45000, ...customConfig } = options;
 
   const token = getAuthToken();
   const isFormData = customConfig.body instanceof FormData;
@@ -46,7 +47,7 @@ export const apiClient = async <T>(endpoint: string, options: FetchOptions = {})
   }
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15000);
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
 
   let response: Response;
   try {
