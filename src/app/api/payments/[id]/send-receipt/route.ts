@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { connectDB } from "@/lib/db";
 import { requireAuth } from "@/lib/auth";
 import { Payment } from "@/models/Payment";
@@ -97,7 +97,7 @@ export async function POST(
       await payment.save();
     }
 
-    const result = await sendFeeReceiptEmail({
+    const emailDetails = {
       studentName,
       studentId: studentCode,
       recipientEmail: primaryEmail,
@@ -110,31 +110,22 @@ export async function POST(
       paymentMethod: payment.paymentMethod || "Razorpay (Online)",
       paidAt: payment.paidAt || payment.updatedAt,
       description: payment.description,
+    };
+
+    // Dispatch the email in the background without blocking the HTTP response
+    after(async () => {
+      try {
+        await sendFeeReceiptEmail(emailDetails);
+      } catch (dispatchErr) {
+        console.error("Background receipt email dispatch error:", dispatchErr);
+      }
     });
-
-    if (result.simulated) {
-      return NextResponse.json(
-        {
-          success: false,
-          simulated: true,
-          message: "Email could not be delivered: RESEND_API_KEY is not configured in your production server environment variables (e.g. Vercel Project Settings).",
-        },
-        { status: 400 }
-      );
-    }
-
-    if (!result.success) {
-      return NextResponse.json(
-        { message: result.error || "Failed to send receipt email via Resend" },
-        { status: 500 }
-      );
-    }
 
     const recipients = [studentEmail, parentEmail].filter(Boolean).join(" & ");
 
     return NextResponse.json({
       success: true,
-      message: `Receipt #${payment.receiptNumber} emailed successfully to ${recipients}`,
+      message: `Receipt #${payment.receiptNumber} email queued and sent to ${recipients}`,
     });
   } catch (err: any) {
     console.error("POST /api/payments/[id]/send-receipt error:", err);

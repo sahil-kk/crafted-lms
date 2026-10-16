@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { verifyPaymentSignature } from "@/lib/razorpay";
 import { connectDB } from "@/lib/db";
 import { Payment } from "@/models/Payment";
@@ -83,8 +83,8 @@ export async function POST(req: NextRequest) {
         serverCache.invalidateTags(["bootstrap"]);
         serverCache.clear();
 
-        // 1. Dispatch fee receipt email to student and linked parent via Resend
-        (async () => {
+        // 1. Dispatch fee receipt email to student and linked parent, and notify accounts
+        after(async () => {
           try {
             const studentDoc = await Student.findOne({
               $or: [{ _id: paymentRecord.studentId }, { studentId: paymentRecord.studentId }],
@@ -130,21 +130,25 @@ export async function POST(req: NextRequest) {
           } catch (receiptErr) {
             console.error("Resend fee receipt error in verify-payment:", receiptErr);
           }
-        })().catch(console.error);
 
-        // 2. Send confirmation notification to Crafted accounts email (accounts@craftedlearn.com)
-        sendPaymentNotificationToAccounts({
-          studentName: paymentRecord.studentName,
-          studentId: displayStudentId,
-          amount: paymentRecord.amount,
-          receiptNumber: paymentRecord.receiptNumber,
-          paymentId: payment_id,
-          orderId: order_id,
-          classGrade: paymentRecord.classGrade,
-          paymentMethod: "Razorpay (Online)",
-          paidAt: paymentRecord.paidAt,
-          description: paymentRecord.description,
-        }).catch(console.error);
+          // 2. Send confirmation notification to Crafted accounts email (accounts@craftedlearn.com)
+          try {
+            await sendPaymentNotificationToAccounts({
+              studentName: paymentRecord.studentName,
+              studentId: displayStudentId,
+              amount: paymentRecord.amount,
+              receiptNumber: paymentRecord.receiptNumber,
+              paymentId: payment_id,
+              orderId: order_id,
+              classGrade: paymentRecord.classGrade,
+              paymentMethod: "Razorpay (Online)",
+              paidAt: paymentRecord.paidAt,
+              description: paymentRecord.description,
+            });
+          } catch (accountsErr) {
+            console.error("Accounts notification error in verify-payment:", accountsErr);
+          }
+        });
       }
     } catch (dbErr) {
       // Log DB error but don't fail verification if DB is offline

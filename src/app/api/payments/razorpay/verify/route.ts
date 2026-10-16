@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { connectDB } from "@/lib/db";
 import { requireAuth } from "@/lib/auth";
 import { Payment } from "@/models/Payment";
@@ -76,8 +76,8 @@ export async function POST(req: NextRequest) {
     serverCache.invalidateTags(["bootstrap"]);
     serverCache.clear();
 
-    // 1. Resolve student and parent email addresses
-    (async () => {
+    // 1. Dispatch fee receipt email to student and linked parent, and notify accounts
+    after(async () => {
       try {
         const studentDoc = await Student.findOne({
           $or: [{ _id: payment.studentId }, { studentId: payment.studentId }],
@@ -124,21 +124,25 @@ export async function POST(req: NextRequest) {
       } catch (receiptErr) {
         console.error("Resend fee receipt email dispatch error:", receiptErr);
       }
-    })().catch(console.error);
 
-    // 2. Send confirmation notification to Crafted accounts email (accounts@craftedlearn.com)
-    sendPaymentNotificationToAccounts({
-      studentName: payment.studentName,
-      studentId: displayStudentId,
-      amount: payment.amount,
-      receiptNumber: payment.receiptNumber,
-      paymentId: razorpay_payment_id,
-      orderId: razorpay_order_id,
-      classGrade: payment.classGrade,
-      paymentMethod: "Razorpay (Online)",
-      paidAt: payment.paidAt,
-      description: payment.description,
-    }).catch(console.error);
+      // 2. Send confirmation notification to Crafted accounts email (accounts@craftedlearn.com)
+      try {
+        await sendPaymentNotificationToAccounts({
+          studentName: payment.studentName,
+          studentId: displayStudentId,
+          amount: payment.amount,
+          receiptNumber: payment.receiptNumber,
+          paymentId: razorpay_payment_id,
+          orderId: razorpay_order_id,
+          classGrade: payment.classGrade,
+          paymentMethod: "Razorpay (Online)",
+          paidAt: payment.paidAt,
+          description: payment.description,
+        });
+      } catch (accountsErr) {
+        console.error("Accounts email notification error:", accountsErr);
+      }
+    });
 
     return NextResponse.json({
       success: true,
